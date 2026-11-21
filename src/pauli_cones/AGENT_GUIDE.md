@@ -25,6 +25,18 @@ pauli-cones schema                                              # JSON request f
 
 Observables are written with wire indices, such as `"0.5*Z0*Z1 - X3"`, or as Qiskit labels, such as `"0.5*IXZ"`, where the rightmost character is wire 0. OpenQASM 2 is read directly; OpenQASM 3 needs Qiskit. Add noise to an OpenQASM circuit with `--noise-1q 0.001 --noise-2q 0.01 --readout 0.02,0.03`.
 
+## Chips
+
+`pauli-cones devices` lists the chip catalogue:
+- superconducting heavy-hex (including the 127-qubit IBM Eagle-style layout), square-grid and line chips;
+- all-to-all trapped ions;
+- neutral-atom arrays;
+- D-Wave-style Chimera, Pegasus and Zephyr annealer graphs.
+
+`pauli-cones device square-grid --param rows=6 --param columns=6` describes one chip, and `--edges` prints its full JSON description, which is also the format for a custom chip.
+
+Add `--device heavy-hex-127` (or `--device my_chip.json`) to `run` or `plan` to apply the chip's gate and readout errors and check its connectivity. The response's `device.uncoupled_two_qubit_operations` counts gates on qubit pairs the chip does not couple. Catalogue noise values are typical figures for each technology, not calibration data; scale them for noise studies in Python with `chip.scaled_noise(2.0)`.
+
 ## Recipe
 
 1. **Plan.** `pauli-cones plan`: if `exact_guaranteed` is true, exact evaluation cannot exceed the term cap.
@@ -50,7 +62,7 @@ r = expectation(qiskit_circuit, "Z0", values={"theta": 0.3}, gradients=True)
 print(r.value, r.gradient, r.error_bound)
 ```
 
-As a drop-in Qiskit primitive: `from pauli_cones.estimator import Estimator`, then use it wherever a Qiskit `EstimatorV2` is expected.
+As a drop-in Qiskit primitive: `from pauli_cones.estimator import Estimator`, then use it wherever a Qiskit `EstimatorV2` is expected. To simulate on a chip, use `from pauli_cones import devices`, then `chip = devices.get("all-to-all-ions", n=20)`, and pass `device=chip` to `expectation` or `Estimator`.
 
 For repeated evaluation, convert once and reuse the plan:
 

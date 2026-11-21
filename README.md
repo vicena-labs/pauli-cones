@@ -40,6 +40,33 @@ print(expectation(qiskit_circuit, "Z0*Z1", values={"theta": 0.3}, gradients=True
 evs = Estimator().run([(qiskit_circuit, observables, parameter_values)]).result()[0].data.evs
 ```
 
+## Chips
+
+`pauli_cones.devices` describes chips: connectivity, native gates, gate and readout errors, coherence times and gate durations, in one JSON format that also serves for custom chips. The catalogue covers:
+- superconducting heavy-hex (including the 127-qubit IBM Eagle-style layout), square-grid and line chips;
+- all-to-all trapped ions;
+- neutral-atom arrays;
+- D-Wave-style Chimera, Pegasus and Zephyr annealer graphs (the last two need `pip install "pauli-cones[dwave]"`).
+
+Catalogue noise values are typical figures for each technology, not calibration data for a particular chip.
+
+```python
+from pauli_cones import devices
+from pauli_cones.interop import expectation
+
+chip = devices.get("heavy-hex-127")
+for factor in (0.5, 1, 2):                       # a noise sweep on one chip
+    print(factor, expectation(circuit_qasm, "Z0*Z1", device=chip.scaled_noise(factor)).value)
+```
+
+```bash
+pauli-cones devices                                   # the catalogue
+pauli-cones device square-grid --param rows=6 --param columns=6
+pauli-cones run circuit.qasm --observable "Z0*Z1" --device all-to-all-ions --device-param n=20
+```
+
+With `--device`, the response reports any two-qubit operations on qubits the chip does not couple.
+
 The command line is built to be driven by AI agents in a shell:
 - every command prints one JSON document;
 - every error carries a `hint` naming the next step;

@@ -3,6 +3,7 @@ document (except `guide`, which prints Markdown), and every failure carries
 error.type, error.message and error.hint with a concrete next step.
 
     pauli-cones capabilities | schema | guide | example | doctor
+    pauli-cones devices | device NAME [--param k=v]   # chip catalogue and descriptions
     pauli-cones plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
     pauli-cones run   INPUT [--observable EXPR] [options]
 
@@ -43,6 +44,11 @@ def main(argv=None):
     sub.add_parser('schema', help='JSON Schema of requests and the response fields')
     sub.add_parser('example', help='Print a self-contained noisy two-qubit request')
     sub.add_parser('doctor', help='Report installed backend availability without compiling')
+    sub.add_parser('devices', help='The chip catalogue: architecture families and their parameters')
+    dev = sub.add_parser('device', help='Describe one chip: connectivity summary, native gates, noise')
+    dev.add_argument('name', help='Catalogue name (see `pauli-cones devices`) or a device .json file')
+    dev.add_argument('--param', action='append', default=[], help='Catalogue parameter, e.g. --param rows=6')
+    dev.add_argument('--edges', action='store_true', help='Print the full description with every coupler')
     for name, text in (('plan', 'Dry run: cone sizes, a rigorous term bound and recommended next commands'),
                        ('run', 'Evaluate one request: values, gradients and diagnostics')):
         cmd = sub.add_parser(name, help=text)
@@ -53,6 +59,9 @@ def main(argv=None):
         cmd.add_argument('--noise-2q', type=float, default=0., help='OpenQASM input: depolarizing after 2-qubit gates')
         cmd.add_argument('--readout', help='OpenQASM input: "p01,p10" readout error on every wire')
         cmd.add_argument('--max-terms', type=int, help='Term cap per cone (OpenQASM input; default 50000)')
+        cmd.add_argument('--device', help='OpenQASM input: a chip from the catalogue or a .json file; applies '
+                                          'its noise and checks its connectivity')
+        cmd.add_argument('--device-param', action='append', default=[], help='Catalogue parameter, e.g. rows=6')
         cmd.add_argument('--timeout', type=float, default=60.0, help='Worker wall deadline in seconds')
         if name == 'run':
             cmd.add_argument('--backend', choices=('native', 'python', 'graph', 'dense', 'auto'), default='native')
@@ -73,6 +82,18 @@ def main(argv=None):
     if args.command == 'example':
         from ._example import EXAMPLE
         print(json.dumps(EXAMPLE, indent=2)); return 0
+    if args.command in ('devices', 'device'):
+        from . import devices
+        try:
+            if args.command == 'devices':
+                print(json.dumps(devices.catalog(), indent=2)); return 0
+            chip = devices.get(args.name, **_params(args.param))
+        except (KeyError, ValueError, OSError) as exc:
+            return emit_error(type(exc).__name__, str(exc).strip('"'),
+                              hint='Run `pauli-cones devices` for catalogue names and parameters.')
+        print(json.dumps(chip.to_dict() if args.edges else {**chip.summary(), 'description': chip.description,
+                                                            'source': chip.source}, indent=2))
+        return 0
     if args.command == 'doctor':
         print(json.dumps({'version': __version__, 'python': platform.python_version(),
                           'platform': platform.platform(),
@@ -125,6 +146,23 @@ class _UsageError(Exception):
         self.hint = hint
 
 
+def _params(pairs):
+    """Catalogue parameters from k=v strings, as int, float or None where they parse."""
+    out = {}
+    for pair in pairs:
+        if '=' not in pair:
+            raise ValueError(f'parameter {pair!r} must be written key=value')
+        key, value = pair.split('=', 1)
+        for kind in (int, float):
+            try:
+                out[key] = kind(value); break
+            except ValueError:
+                continue
+        else:
+            out[key] = None if value.lower() == 'none' else value
+    return out
+
+
 def _read(path):
     if path == '-':
         return sys.stdin.buffer.read(MAX_INPUT + 1)
@@ -145,6 +183,12 @@ def _qasm_request(raw, args):
     request = {'schema_version': 1, 'qasm': raw.decode('utf-8'), 'observables': args.observable}
     if args.max_terms is not None:
         request['max_terms'] = args.max_terms
+    if args.device:
+        from . import devices
+        try:
+            request['device'] = devices.get(args.device, **_params(args.device_param)).to_dict()
+        except (KeyError, ValueError, OSError) as exc:
+            raise _UsageError(str(exc).strip('"'), 'Run `pauli-cones devices` for catalogue names and parameters.')
     if args.values:
         values = json.loads(args.values)
         request['parameter_vectors'] = values if values and isinstance(values[0], list) else [values]

@@ -69,12 +69,16 @@ def decode_qasm_request(data):
     vectors holding OpenQASM 3 input values in source order."""
     from .interop import from_qasm, parse_observable
     fields(data, ("schema_version", "qasm", "observables"),
-           ("max_terms", "parameter_vectors", "gradients", "noise"))
+           ("max_terms", "parameter_vectors", "gradients", "noise", "device"))
     _integer(data['schema_version'], 'schema_version', 1, 1)
     if not isinstance(data['qasm'], str): raise ValueError("qasm must be OpenQASM text")
     if not isinstance(data.get('gradients', True), bool):
         raise ValueError('gradients must be a boolean')
-    converted = from_qasm(data['qasm'], noise=data.get('noise'), max_terms=data.get('max_terms', 50_000))
+    noise = data.get('noise')
+    if 'device' in data and noise is None:
+        from .devices import Device
+        noise = Device.from_dict(data['device']).noise_model()
+    converted = from_qasm(data['qasm'], noise=noise, max_terms=data.get('max_terms', 50_000))
     c = converted.circuit
     raw = data['observables']
     if isinstance(raw, list):

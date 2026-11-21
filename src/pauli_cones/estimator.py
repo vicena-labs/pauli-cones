@@ -33,8 +33,10 @@ class Estimator(BaseEstimatorV2):
     a pauli_cones.interop.Noise or mapping; max_terms caps each cone.
     """
 
-    def __init__(self, *, backend="native", truncation=None, threads=1, noise=None,
+    def __init__(self, *, backend="native", truncation=None, threads=1, noise=None, device=None,
                  max_terms=1_000_000, default_precision=0.0):
+        if device is not None and noise is None:
+            noise = device.noise_model()  # a pauli_cones.devices Device's gate and readout errors
         self.backend = backend
         self.truncation = truncation
         self.threads = threads

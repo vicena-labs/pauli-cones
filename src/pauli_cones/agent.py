@@ -37,6 +37,8 @@ def capabilities():
             "qiskit": "pauli_cones.interop.from_qiskit and pauli_cones.estimator.Estimator (Qiskit Estimator V2)",
         },
         "native_gates": ["H", "SX", "X", "Y", "Z", "RX", "RY", "RZ", "CZ", "ECR", "FSIM"],
+        "devices": "chip catalogue: `pauli-cones devices`; describe one with `pauli-cones device NAME`; "
+                   "apply a chip's noise and check its connectivity with --device on run and plan",
         "converted_gates": SUPPORTED_GATES,
         "other_gates": "transpiled by Qiskit when it is installed",
         "noise": ["DEPOLARIZE (1 or 2 wires)", "PAULI_ERROR", "RELAX (T1/T2)", "readout (p01, p10)",
@@ -92,7 +94,10 @@ def schema():
                             "noise": {"type": "object", "additionalProperties": False, "properties": {
                                 "depolarizing_1q": {"type": "number"}, "depolarizing_2q": {"type": "number"},
                                 "readout": {"type": "array", "items": {"type": "number"}, "minItems": 2,
-                                            "maxItems": 2}}}}},
+                                            "maxItems": 2}}},
+                            "device": {"type": "object", "description": "a pauli-cones-device/1 chip description "
+                                       "(`pauli-cones device NAME --edges`); its noise applies unless noise is "
+                                       "given, and the response reports uncoupled two-qubit operations"}}},
         ]},
         "response": {"ok": "boolean",
                      "results": "one {value, gradient[, error_bound, gradient_error_bound]} per parameter vector",

@@ -505,16 +505,22 @@ def _real_coefficient(c):
 
 # ---------------------------------------------------------------- one call
 def expectation(circuit, observable, *, values=None, gradients=False, backend="native", truncation=None,
-                noise=None, threads=1, max_terms=1_000_000):
+                noise=None, device=None, threads=1, max_terms=1_000_000):
     """One-call expectation value of an observable on a circuit.
 
     circuit may be a Pauli Cones Circuit, a Qiskit QuantumCircuit or OpenQASM
     text; observable any form parse_observable accepts. values gives the
     Qiskit parameter values (or the shift vector for a Pauli Cones Circuit).
     Returns an Evaluation; its gradient follows the converted parameters'
-    order, which `convert(...).parameters` reports.
+    order, which `convert(...).parameters` reports. A pauli_cones.devices
+    Device supplies the noise when `noise` is not given.
     """
+    if device is not None and noise is None:
+        noise = device.noise_model()
     converted = convert(circuit, noise=noise, max_terms=max_terms, values=values)
+    if device is not None and converted.circuit.n_qubits > device.n_qubits:
+        raise ConversionError(f"the circuit has {converted.circuit.n_qubits} qubits; {device.name} has "
+                              f"{device.n_qubits}", "choose a larger device")
     terms = parse_observable(observable, converted.circuit.n_qubits)
     plan = converted.circuit.prepare(terms, backend=backend, truncation=truncation, threads=threads)
     shifts = converted.shifts(values) if converted.parameters else None
