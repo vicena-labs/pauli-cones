@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import pytest
-from pauli_cones import Circuit, ConeOverflow
+from quantum_circuit_simulator import Circuit, ConeOverflow
 
 
 @pytest.mark.parametrize('backend',['native','python'])

@@ -10,7 +10,7 @@ import argparse
 import json
 import math
 
-from pauli_cones import Circuit, Topology
+from quantum_circuit_simulator import Circuit, Topology
 
 
 def cnot(circuit: Circuit, control: int, target: int, topology: Topology) -> None:

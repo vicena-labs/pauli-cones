@@ -1,6 +1,6 @@
 """Output contracts: versioned result schemas, provenance, progress events and checkpoints.
 
-Every CLI result is one JSON document tagged `schema: pauli-cones-<kind>/<n>`,
+Every CLI result is one JSON document tagged `schema: quantum-circuit-simulator-<kind>/<n>`,
 with a `provenance` record that says what produced it: package and library
 versions, the platform, a SHA-256 of the canonical request, the seed and the
 time. A field may be added to a schema without a version change; removing or
@@ -41,13 +41,13 @@ OUTPUTS = {
 def schema_name(kind, version=1):
     if kind not in OUTPUTS:
         raise ValueError(f"unknown result kind {kind!r}")
-    return f"pauli-cones-{kind}/{version}"
+    return f"quantum-circuit-simulator-{kind}/{version}"
 
 
 def provenance(request=None, *, seed=None, solver=None):
     """What produced a result: versions, platform, request hash, seed, solver and UTC time."""
     import numpy
-    record = {"package": "pauli-cones", "version": __version__, "python": platform.python_version(),
+    record = {"package": "quantum-circuit-simulator", "version": __version__, "python": platform.python_version(),
               "numpy": numpy.__version__, "platform": platform.platform(),
               "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     if request is not None:
@@ -118,7 +118,7 @@ class Checkpoint:
                         item = json.loads(line)
                         self.rows[item["key"]] = item["row"]
         else:
-            self.path.write_text(json.dumps({"checkpoint": "pauli-cones", "request_sha256": self.hash}) + "\n",
+            self.path.write_text(json.dumps({"checkpoint": "quantum-circuit-simulator", "request_sha256": self.hash}) + "\n",
                                  encoding="utf-8")
 
     def get(self, key):

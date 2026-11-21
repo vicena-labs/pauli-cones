@@ -8,7 +8,7 @@ import argparse
 import json
 import math
 import time
-from pauli_cones import Circuit, Topology
+from quantum_circuit_simulator import Circuit, Topology
 
 
 def run(rows: int, columns: int, observable_count: int = 128, *, noise: float = .005,

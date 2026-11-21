@@ -4,8 +4,8 @@ import math
 import numpy as np
 import pytest
 
-from pauli_cones._core._graph import GraphLimitExceeded, GraphPrepared, _fourier
-from pauli_cones._core._reference import NoisyPauliCircuit, fsim, transfer
+from quantum_circuit_simulator._core._graph import GraphLimitExceeded, GraphPrepared, _fourier
+from quantum_circuit_simulator._core._reference import NoisyPauliCircuit, fsim, transfer
 from test_reference_density import build_case, oracle
 
 
@@ -173,7 +173,7 @@ def test_all_fsim_fourier_paths_remain_valid_at_special_phi():
 
 
 def _wide_noisy_brickwork(n=600):
-    from pauli_cones import Circuit
+    from quantum_circuit_simulator import Circuit
     c = Circuit(n, 2)
     for q in range(n):
         c.gate('RY', [q], theta=.01 * q, param=q % 2)
@@ -204,7 +204,7 @@ def test_wide_graph_over_budget_falls_back_to_wide_native():
 
 def test_joint_graph_group_over_the_cap_splits_into_single_cones():
     # Jointly X0, X1 and RY's Z1 image need 3 terms; each cone alone needs 2.
-    from pauli_cones import Circuit
+    from quantum_circuit_simulator import Circuit
     c = Circuit(2, 2, max_terms=2).gate('H', [0]).gate('H', [1])
     c.gate('RY', [0], theta=.4, param=0).gate('RY', [1], theta=-.3, param=1)
     plan = c.prepare([(1., {0: 'X'}), (1., {1: 'X'})], backend='graph')

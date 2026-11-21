@@ -4,8 +4,8 @@ import math
 import numpy as np
 import pytest
 
-from pauli_cones import Truncation
-from pauli_cones.interop import ConversionError, expectation, from_qasm, parse_observable
+from quantum_circuit_simulator import Truncation
+from quantum_circuit_simulator.interop import ConversionError, expectation, from_qasm, parse_observable
 
 qiskit = pytest.importorskip("qiskit")
 from qiskit import QuantumCircuit, qasm2  # noqa: E402
@@ -69,7 +69,7 @@ def test_shared_parameters_including_negative_slopes_give_values_and_gradients()
     bound = qc.assign_parameters({p: values[p.name] for p in qc.parameters})
     assert result.value == pytest.approx(statevector_expectation(bound, observable), abs=1e-12)
     # Gradient order follows the converted parameters; compare by name.
-    from pauli_cones.interop import convert
+    from quantum_circuit_simulator.interop import convert
     names = [p.name for p in convert(qc).parameters]
     for name, g in zip(names, result.gradient):
         plus, minus = dict(values), dict(values)
@@ -119,7 +119,7 @@ def test_unsupported_qasm_explains_what_to_do(bad, hint):
 
 def test_estimator_matches_statevector_estimator_with_broadcasting():
     from qiskit.primitives import StatevectorEstimator
-    from pauli_cones.estimator import Estimator
+    from quantum_circuit_simulator.estimator import Estimator
     a, b = Parameter("a"), Parameter("b")
     qc = QuantumCircuit(3)
     qc.h(0); qc.ry(a, 1); qc.cx(0, 1); qc.rz(-b, 2); qc.cx(1, 2); qc.rx(a + 0.1, 0)
@@ -130,18 +130,18 @@ def test_estimator_matches_statevector_estimator_with_broadcasting():
     assert ours.data.evs.shape == ref.data.evs.shape == (2, 4)
     assert np.allclose(ours.data.evs, ref.data.evs, atol=1e-12)
     assert np.all(ours.data.stds == 0)
-    assert ours.metadata["pauli_cones"]["shared_parameters"] is True
-    assert ours.metadata["pauli_cones"]["plans"] == 2  # one per observable, reused across 4 bindings
+    assert ours.metadata["quantum_circuit_simulator"]["shared_parameters"] is True
+    assert ours.metadata["quantum_circuit_simulator"]["plans"] == 2  # one per observable, reused across 4 bindings
     # A circuit whose parameters cannot be shared is rebuilt per binding.
     q2 = QuantumCircuit(1); q2.ry(a * b, 0)
     vals = np.array([[0.1, 2.0], [0.4, 2.0]])
     res = Estimator().run([(q2, "Z", vals)]).result()[0]
     assert np.allclose(res.data.evs, np.cos(2 * vals[:, 0]), atol=1e-14)
-    assert res.metadata["pauli_cones"]["shared_parameters"] is False
+    assert res.metadata["quantum_circuit_simulator"]["shared_parameters"] is False
 
 
 def test_estimator_truncation_and_noise():
-    from pauli_cones.estimator import Estimator
+    from quantum_circuit_simulator.estimator import Estimator
     qc = QuantumCircuit(4)
     for layer in range(4):
         for q in range(4):

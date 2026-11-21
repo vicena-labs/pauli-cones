@@ -1,12 +1,12 @@
 # Independent comparison harness
 
-These scripts compare Pauli Cones with Qiskit Aer, Qulacs, PennyLane Lightning, IBM pauli-prop, quimb and PauliPropagation.jl on identical circuits, observables and parameter vectors. Each run is a fresh process with a time limit, and refusals and timeouts are recorded as results. [Preliminary results](results-2026-11-20-laptop/v5_tables.md) from one laptop are summarised in [measured performance](../../docs/performance.md#preliminary-comparison-of-040).
+These scripts compare Quantum Circuit Simulator with Qiskit Aer, Qulacs, PennyLane Lightning, IBM pauli-prop, quimb and PauliPropagation.jl on identical circuits, observables and parameter vectors. Each run is a fresh process with a time limit, and refusals and timeouts are recorded as results. [Preliminary results](results-2026-11-20-laptop/v5_tables.md) from one laptop are summarised in [measured performance](../../docs/performance.md#preliminary-comparison-of-040).
 
 | File | Purpose |
 | --- | --- |
 | `bench.py` | Workloads and one adapter per Python tool. `run` times exact evaluation; `export` writes the workloads and timed vectors as JSON for Julia |
 | `pp_bench.jl`, `run_pp.py` | PauliPropagation.jl: exact, truncated (`min_abs_coeff`, `max_weight`) or its reusable surrogate (`PP_MODE=surrogate`) |
-| `trunc_bench.py` | Pauli Cones truncated mode (`BENCH_BACKEND=native` or `graph`), converting an absolute coefficient threshold to Pauli Cones' relative one |
+| `trunc_bench.py` | Quantum Circuit Simulator truncated mode (`BENCH_BACKEND=native` or `graph`), converting an absolute coefficient threshold to Quantum Circuit Simulator's relative one |
 | `summarize_v5.py` | Builds the tables from the raw JSONL files |
 
 ## Workloads
@@ -22,7 +22,7 @@ RZZ(−π/2) is written as CZ followed by RZ(−π/2) on both qubits, which is e
 ## Running
 
 ```bash
-pip install qiskit qiskit-aer qulacs pennylane quimb pauli-prop pauli-cones
+pip install qiskit qiskit-aer qulacs pennylane quimb pauli-prop quantum-circuit-simulator
 BENCH_REPS=5 python bench.py export results/workloads.json
 BENCH_THREADS=1 BENCH_TOOLS=pauli_cones,pauli_cones_graph,qulacs,aer,lightning,quimb,pauli_prop \
     BENCH_GRAPH_WIDE=1 BENCH_TIMEOUT=120 python -I bench.py run results/exact_1t.jsonl
@@ -40,9 +40,9 @@ python summarize_v5.py results > tables.md
   - a variable assigned inside a Julia `try` block that hid a function;
   - adapters that handled only two-qubit depolarizing noise.
 
-  Every adapter is now checked against Qiskit or Pauli Cones on a small case before timing.
+  Every adapter is now checked against Qiskit or Quantum Circuit Simulator on a small case before timing.
 - **Default truncation:** PauliPropagation.jl truncates by default (`min_abs_coeff = 1e-10`); exact runs must pass 0.
-- **Weight conventions differ:** PauliPropagation.jl counts Pauli weight over the whole string, Pauli Cones only on wires still open. Only coefficient-only truncation is like for like.
+- **Weight conventions differ:** PauliPropagation.jl counts Pauli weight over the whole string, Quantum Circuit Simulator only on wires still open. Only coefficient-only truncation is like for like.
 - **Machine load:** background applications made 8-thread figures unreliable and slowed Julia start-up to tens of seconds. Timings belong on a dedicated machine.
 
 Return to [benchmarks](../README.md).

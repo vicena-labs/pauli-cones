@@ -1,40 +1,57 @@
-# Pauli Cones
+# Quantum Circuit Simulator
 
-Noisy Pauli-observable expectations and shared-parameter gradients, with a C++ sparse CPU kernel, a Python reference, reusable execution graphs and bounded local density matrices.
+**A quantum circuit simulator by Vicena, built for AI agents and the scientists who work with them.** It answers the question that decides where quantum computing effort goes: *will this algorithm work on that hardware, at this size and noise level, and what would make it work?* In one package you can:
+- simulate noisy circuits on realistic chips;
+- develop algorithms with exact gradients;
+- design new chips and compare them;
+- get every answer as JSON that says how it was computed and whether it is exact.
 
-**Release candidate 0.5.0rc1, by Mehdi Farza, licensed under Apache-2.0.** It is not yet published on PyPI; install it from a checkout with `pip install .`. Once released, `pip install pauli-cones` will install it. The repository contains the source, tests, examples and benchmark evidence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY.md), [how to cite it](CITATION.cff) and the [related work](docs/related-work.md) it builds on.
+**Release candidate 0.5.0rc1, by Mehdi Farza, licensed under Apache-2.0.** It is not yet published on PyPI; install it from a checkout with `pip install .`. Once released, `pip install quantum-circuit-simulator` will install it. The repository contains the source, tests, examples and benchmark evidence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY.md), [how to cite it](CITATION.cff) and the [related work](docs/related-work.md) it builds on.
 
-## What it computes
+## What it does
 
-A weighted sum of Pauli expectations and its analytic first derivatives with respect to up to 4,096 shared parameters, each entering its gates' angles linearly (`k*p + b`). It starts from the zero product state and propagates observables backward through a circuit. Native preparation builds only the relevant dependency cones and shares transfer matrices across them. Around that core sit state simulation and sampling, Hamiltonians, optimisers, zero-noise extrapolation, chips and a compiler, so an agent can develop an algorithm, test it on realistic hardware and design the hardware in one package.
+- **Simulates circuits on chips.** It compiles a circuit onto a superconducting, trapped-ion, neutral-atom or custom chip, then simulates it with gate errors, idle relaxation, crosstalk and readout error.
+- **Develops algorithms.** It builds Hamiltonians, Trotter and QAOA circuits, runs VQE and QAOA with exact gradients in up to 4,096 shared parameters, applies zero-noise extrapolation, and estimates the shot budget a hardware run needs.
+- **Designs hardware.** It builds chips (modules, defects, physics-derived errors, crosstalk), grows them to larger sizes with the same architecture, and ranks designs on real workloads.
+- **Returns states and samples.** It gives amplitudes, density matrices and measured bitstrings with noise, up to 28 qubits, and any size for Clifford circuits.
 
-Supported operations include H, SX, X/Y/Z, RX/RY/RZ, CZ, ECR, fSim (theta derivative only), any fixed one- or two-qubit unitary, independent Pauli errors, one/two-qubit depolarization, zero-temperature T1/T2 relaxation, and asymmetric Z readout. The API now addresses **1–16,384 logical qubits**. The optimized native solver still uses **at most 256 active wires per observable causal cone**; larger circuits are remapped into local cones. This is **not** an arbitrary full-state or deep-circuit simulator: in the default exact mode, broad causal cones exceed an explicit limit and refuse instead of returning a partial answer. An optional truncated mode answers deeper circuits approximately and reports a rigorous bound on what it discarded.
+## How it solves: Pauli cones
 
-Pauli propagation itself returns expectation values, not states or samples; `pauli_cones.statevector` adds those for circuits of up to 28 qubits (12 for noisy density matrices), and Stim samples larger Clifford circuits. Nothing needs a hosted account, API key, internet connection at runtime, or proprietary application installation.
+The main solver propagates each observable backward through the circuit, in the Heisenberg picture, as a sum of Pauli operators. It touches only the observable's backward **light cone**, so cost depends on the cone, not the register: a local observable on a 1,000-qubit shallow circuit is cheap. The solver is written in C++, groups observables whose cones overlap, and differentiates every shared parameter. It can compile the propagation once into a reusable graph, so each new parameter vector costs one pass forward and one pass back. An optional truncation answers deeper circuits approximately, with a rigorous bound on what it discarded. We call this the Pauli-cone method.
+
+A router chooses the solver for every question and says which one it used:
+1. exact Pauli cones;
+2. the state vector, or the density matrix for noisy circuits;
+3. exact local density matrices;
+4. truncated Pauli cones with a convergence check.
+
+It can also cross-check one method against another. Pauli propagation itself returns expectation values; the state simulators add states and samples.
+
+Supported operations include H, SX, X/Y/Z, RX/RY/RZ, CZ, ECR, fSim (theta derivative only), any fixed one- or two-qubit unitary, independent Pauli errors, one/two-qubit depolarization, zero-temperature T1/T2 relaxation, and asymmetric Z readout. Circuits address **1–16,384 logical qubits**; the Pauli-cone solver uses **at most 256 active wires per observable light cone**, and larger circuits are remapped into local cones. In exact mode, a cone too broad for its term budget is refused instead of answered partially. Nothing needs a hosted account, API key, internet connection at runtime, or proprietary application installation.
 
 ## Install and run locally
 
 Use Python 3.10 or later. NumPy is the only runtime Python dependency. Binary wheels are published for Linux, macOS and Windows; on other platforms, installation compiles the extension and needs a C++17 compiler and Python development headers.
 
 ```bash
-python -m pip install pauli-cones      # or, from a checkout: python -m pip install .
-pauli-cones doctor
-pauli-cones example > problem.json
-pauli-cones run problem.json
+python -m pip install quantum-circuit-simulator      # or, from a checkout: python -m pip install .
+quantum-circuit-simulator doctor
+quantum-circuit-simulator example > problem.json
+quantum-circuit-simulator run problem.json
 ```
 
 ## Use it from OpenQASM, Qiskit or an agent
 
-Existing circuits run without rewriting. OpenQASM 2 is read with no dependencies; OpenQASM 3 and Qiskit circuits need `pip install "pauli-cones[qiskit]"`. Every gate is decomposed exactly into the native set, and Qiskit Parameters become shared parameters, so one prepared plan serves a whole parameter sweep.
+Existing circuits run without rewriting. OpenQASM 2 is read with no dependencies; OpenQASM 3 and Qiskit circuits need `pip install "quantum-circuit-simulator[qiskit]"`. Every gate is decomposed exactly into the native set, and Qiskit Parameters become shared parameters, so one prepared plan serves a whole parameter sweep.
 
 ```bash
-pauli-cones plan circuit.qasm --observable "0.5*Z0*Z1 - X3"   # dry run: is exact feasible?
-pauli-cones run circuit.qasm --observable "0.5*Z0*Z1 - X3" --noise-2q 0.01
+quantum-circuit-simulator plan circuit.qasm --observable "0.5*Z0*Z1 - X3"   # dry run: is exact feasible?
+quantum-circuit-simulator run circuit.qasm --observable "0.5*Z0*Z1 - X3" --noise-2q 0.01
 ```
 
 ```python
-from pauli_cones.interop import expectation
-from pauli_cones.estimator import Estimator          # a Qiskit Estimator V2
+from quantum_circuit_simulator.interop import expectation
+from quantum_circuit_simulator.estimator import Estimator          # a Qiskit Estimator V2
 
 print(expectation(qiskit_circuit, "Z0*Z1", values={"theta": 0.3}, gradients=True))
 evs = Estimator().run([(qiskit_circuit, observables, parameter_values)]).result()[0].data.evs
@@ -42,10 +59,10 @@ evs = Estimator().run([(qiskit_circuit, observables, parameter_values)]).result(
 
 ## Algorithms: Hamiltonians, optimisation, mitigation and shot noise
 
-`pauli_cones.hamiltonians` builds Pauli-sum Hamiltonians (transverse-field Ising, Heisenberg/XXZ, Max-Cut and Fermi-Hubbard under Jordan–Wigner, on chains, grids and random regular graphs) or loads them from JSON, strings, Qiskit `SparsePauliOp` or OpenFermion `QubitOperator`. `trotter` and `qaoa` turn them into circuits whose angles are shared, weighted parameters, so time or the QAOA angles are differentiable. `pauli_cones.algorithms` adds an `Objective` that reuses one plan per Hamiltonian, optimisers (Adam, gradient descent, SPSA, L-BFGS) that keep a full trace, `vqe`, `qaoa`, zero-noise extrapolation (`zne`) and the statistical error of a hardware run with a given number of shots (`shot_noise`).
+`quantum_circuit_simulator.hamiltonians` builds Pauli-sum Hamiltonians (transverse-field Ising, Heisenberg/XXZ, Max-Cut and Fermi-Hubbard under Jordan–Wigner, on chains, grids and random regular graphs) or loads them from JSON, strings, Qiskit `SparsePauliOp` or OpenFermion `QubitOperator`. `trotter` and `qaoa` turn them into circuits whose angles are shared, weighted parameters, so time or the QAOA angles are differentiable. `quantum_circuit_simulator.algorithms` adds an `Objective` that reuses one plan per Hamiltonian, optimisers (Adam, gradient descent, SPSA, L-BFGS) that keep a full trace, `vqe`, `qaoa`, zero-noise extrapolation (`zne`) and the statistical error of a hardware run with a given number of shots (`shot_noise`).
 
 ```python
-from pauli_cones import algorithms as al, devices, hamiltonians as hm
+from quantum_circuit_simulator import algorithms as al, devices, hamiltonians as hm
 
 h = hm.heisenberg(hm.chain(8))
 result = al.vqe(h, al.hardware_efficient(8, layers=3), steps=300)      # exact gradients, 64 parameters
@@ -55,39 +72,39 @@ cut = al.qaoa(hm.maxcut(hm.random_regular(12, 3)), depth=2)               # appr
 ```
 
 ```bash
-pauli-cones optimize --model heisenberg --lattice grid --size 3,3 --device heavy-hex-127 --progress
-pauli-cones zne circuit.qasm --observable "Z0*Z1" --device square-grid --fit richardson
-pauli-cones shot-noise circuit.qasm --observable h.json --shots 10000
+quantum-circuit-simulator optimize --model heisenberg --lattice grid --size 3,3 --device heavy-hex-127 --progress
+quantum-circuit-simulator zne circuit.qasm --observable "Z0*Z1" --device square-grid --fit richardson
+quantum-circuit-simulator shot-noise circuit.qasm --observable h.json --shots 10000
 ```
 
 With more than 16 parameters, gradients come from the graph backend's single reverse pass (the native solver computes them 16 per pass). On a 12-qubit, 120-parameter ansatz with a Heisenberg Hamiltonian the graph returns the value and all 120 derivatives in 5 ms, against 0.85 s for the native passes (an Apple M-series laptop, one thread).
 
 ## States and sampling
 
-`pauli_cones.statevector` simulates states directly: amplitudes of noise-free circuits up to 28 qubits, density matrices up to 12 qubits, and measured bitstrings with noise and readout error, sampled exactly from the density matrix or from one quantum trajectory per shot. Clifford circuits of any size are sampled through Stim (`pip install "pauli-cones[stim]"`). A circuit compiled onto a large chip is sampled on the qubits it uses only. The solver router cross-checks Pauli propagation against these simulators on request (`solve(..., cross_check=True)`).
+`quantum_circuit_simulator.statevector` simulates states directly: amplitudes of noise-free circuits up to 28 qubits, density matrices up to 12 qubits, and measured bitstrings with noise and readout error, sampled exactly from the density matrix or from one quantum trajectory per shot. Clifford circuits of any size are sampled through Stim (`pip install "quantum-circuit-simulator[stim]"`). A circuit compiled onto a large chip is sampled on the qubits it uses only. The solver router cross-checks Pauli propagation against these simulators on request (`solve(..., cross_check=True)`).
 
 ```bash
-pauli-cones sample circuit.qasm --shots 4000 --device heavy-hex-127 --seed 1
-pauli-cones statevector circuit.qasm
+quantum-circuit-simulator sample circuit.qasm --shots 4000 --device heavy-hex-127 --seed 1
+quantum-circuit-simulator statevector circuit.qasm
 ```
 
 ## Output contracts
 
-Every command prints one JSON document tagged `schema: pauli-cones-<kind>/1` with a `provenance` record (package and library versions, platform, SHA-256 of the canonical request, seed, UTC time), so a result can be reproduced and cited. Compiling reports a noise budget per qubit and per coupler (gate, idle, spectator and readout errors and ZZ phase) and, with `--schedule`, every gate's physical qubits, start time and duration; chips carry qubit coordinates in lattice units. Long tasks stream JSON-line progress events on standard error with `--progress`, and sweeps resume from a `--checkpoint` file. Fields are only added within a schema version.
+Every command prints one JSON document tagged `schema: quantum-circuit-simulator-<kind>/1` with a `provenance` record (package and library versions, platform, SHA-256 of the canonical request, seed, UTC time), so a result can be reproduced and cited. Compiling reports a noise budget per qubit and per coupler (gate, idle, spectator and readout errors and ZZ phase) and, with `--schedule`, every gate's physical qubits, start time and duration; chips carry qubit coordinates in lattice units. Long tasks stream JSON-line progress events on standard error with `--progress`, and sweeps resume from a `--checkpoint` file. Fields are only added within a schema version.
 
 ## Chips
 
-`pauli_cones.devices` describes chips: connectivity, native gates, gate and readout errors, coherence times and gate durations, in one JSON format that also serves for custom chips. The catalogue covers:
+`quantum_circuit_simulator.devices` describes chips: connectivity, native gates, gate and readout errors, coherence times and gate durations, in one JSON format that also serves for custom chips. The catalogue covers:
 - superconducting heavy-hex (including the 127-qubit IBM Eagle-style layout), square-grid and line chips;
 - all-to-all trapped ions;
 - neutral-atom arrays;
-- D-Wave-style Chimera, Pegasus and Zephyr annealer graphs (the last two need `pip install "pauli-cones[dwave]"`).
+- D-Wave-style Chimera, Pegasus and Zephyr annealer graphs (the last two need `pip install "quantum-circuit-simulator[dwave]"`).
 
 Catalogue noise values are typical figures for each technology, not calibration data for a particular chip.
 
 ```python
-from pauli_cones import devices
-from pauli_cones.interop import expectation
+from quantum_circuit_simulator import devices
+from quantum_circuit_simulator.interop import expectation
 
 chip = devices.get("heavy-hex-127")
 for factor in (0.5, 1, 2):                       # a noise sweep on one chip
@@ -95,36 +112,36 @@ for factor in (0.5, 1, 2):                       # a noise sweep on one chip
 ```
 
 ```bash
-pauli-cones devices                                   # the catalogue
-pauli-cones device square-grid --param rows=6 --param columns=6
-pauli-cones run circuit.qasm --observable "Z0*Z1" --device all-to-all-ions --device-param n=20
+quantum-circuit-simulator devices                                   # the catalogue
+quantum-circuit-simulator device square-grid --param rows=6 --param columns=6
+quantum-circuit-simulator run circuit.qasm --observable "Z0*Z1" --device all-to-all-ions --device-param n=20
 ```
 
 With `--device`, the response reports any two-qubit operations on qubits the chip does not couple. To run on the chip, add `--compile`.
 
-`pauli_cones.compiler` routes a circuit onto a chip:
+`quantum_circuit_simulator.compiler` routes a circuit onto a chip:
 - it places the qubits, inserting SWAPs where needed (built in, or Qiskit's SABRE with `router="sabre"`);
 - it schedules gates with the chip's durations;
 - it simulates gate errors, T1/T2 decay of idle qubits, and readout error on the measured Paulis.
 
 Observables keep the circuit's qubit numbers, and `noise_scale` multiplies every error and decoherence rate for noise sweeps. Without noise, a compiled circuit reproduces the original expectation exactly.
 
-`pauli_cones.design` builds new chips. It can:
+`quantum_circuit_simulator.design` builds new chips. It can:
 - tile modules joined by links with their own error rates;
 - remove defective qubits and edit couplers;
 - derive gate errors from T1, T2 and gate durations (the exact coherence limit, plus control error).
 
-It can also give every qubit its own errors and coherence times, add crosstalk (spectator errors and ZZ phases around two-qubit gates), and grow any chip to more qubits with the same architecture. A sweep can grow the chip for each size with `--device fit:NAME`. `compare` ranks designs against catalogue chips on benchmark circuits. Both are also commands (`pauli-cones design`, `pauli-cones compare`), and a designed chip is an ordinary device file.
+It can also give every qubit its own errors and coherence times, add crosstalk (spectator errors and ZZ phases around two-qubit gates), and grow any chip to more qubits with the same architecture. A sweep can grow the chip for each size with `--device fit:NAME`. `compare` ranks designs against catalogue chips on benchmark circuits. Both are also commands (`quantum-circuit-simulator design`, `quantum-circuit-simulator compare`), and a designed chip is an ordinary device file.
 
 Sweeps put it together: compile and solve over chips, noise scales and sizes, with the ideal value and routing cost beside every point. The solver is chosen automatically and every row says whether it is exact.
 
 ```bash
-pauli-cones sweep --family qaoa-ring --sizes 8,12,16 --device heavy-hex-127 \
+quantum-circuit-simulator sweep --family qaoa-ring --sizes 8,12,16 --device heavy-hex-127 \
     --device "all-to-all-ions:n=16" --noise-scales 0,1,2 --format markdown
 ```
 
 ```python
-from pauli_cones.compiler import compile_circuit
+from quantum_circuit_simulator.compiler import compile_circuit
 compiled = compile_circuit(circuit_qasm, devices.get("heavy-hex-127"), noise_scale=2)
 print(compiled.report["swaps"], compiled.report["duration_s"], compiled.expectation("Z0*Z1").value)
 ```
@@ -132,15 +149,15 @@ print(compiled.report["swaps"], compiled.report["duration_s"], compiled.expectat
 The command line is built to be driven by AI agents in a shell:
 - every command prints one JSON document;
 - every error carries a `hint` naming the next step;
-- `pauli-cones capabilities` and `pauli-cones schema` describe the tool;
-- `pauli-cones guide` prints a usage guide written for agents.
+- `quantum-circuit-simulator capabilities` and `quantum-circuit-simulator schema` describe the tool;
+- `quantum-circuit-simulator guide` prints a usage guide written for agents.
 
 [AGENTS.md](AGENTS.md) points agents to it.
 
 No compiler runs when importing the package or evaluating a circuit. `--backend python` selects the reference implementation explicitly. The default native backend fails visibly if its term budget is exceeded.
 
 ```python
-from pauli_cones import Circuit
+from quantum_circuit_simulator import Circuit
 
 circuit = Circuit(2, n_parameters=1)
 circuit.gate("RY", [0], theta=0.7, param=0)
@@ -161,7 +178,7 @@ print(plan.evaluate_values([[0.0], [0.1], [-0.1]]))
 ### Truncated mode
 
 ```python
-from pauli_cones import Truncation
+from quantum_circuit_simulator import Truncation
 
 approx = circuit.prepare([(1.0, {0: "Z"})], truncation=Truncation(min_coefficient=1e-4, max_weight=6))
 result = approx.evaluate([0.1])
@@ -235,11 +252,11 @@ The restricted fresh-circuit native executables are retained as **experimental s
 
 ## Related work and acknowledgements
 
-Pauli Cones implements Heisenberg-picture Pauli propagation, a method developed across a substantial literature, and reuses ideas from several open tools. [Related work](docs/related-work.md) lists the papers and software it builds on, what each contributed, and how Pauli Cones differs.
+Quantum Circuit Simulator implements Heisenberg-picture Pauli propagation, a method developed across a substantial literature, and reuses ideas from several open tools. [Related work](docs/related-work.md) lists the papers and software it builds on, what each contributed, and how Quantum Circuit Simulator differs.
 
 ## Many-qubit circuits and custom backends
 
-Pauli Cones **0.3.0a1** introduced a wide logical-register adapter: 1–16,384 indexed wires, connected line/grid/user-supplied topologies, and native evaluation of local observables even when their wire indices exceed 255. The backward dependency graph for all observables is traversed once. Observables whose combined cone is small enough are grouped, each group is renumbered to its own wires, and all groups run in one native call over one shared bound copy of the circuit. Independent idle wires contract analytically.
+Quantum Circuit Simulator **0.3.0a1** introduced a wide logical-register adapter: 1–16,384 indexed wires, connected line/grid/user-supplied topologies, and native evaluation of local observables even when their wire indices exceed 255. The backward dependency graph for all observables is traversed once. Observables whose combined cone is small enough are grouped, each group is renumbered to its own wires, and all groups run in one native call over one shared bound copy of the circuit. Independent idle wires contract analytically.
 
 ```bash
 python examples/large_qubit_grid.py --rows 64 --columns 64 --observables 128 --vertical

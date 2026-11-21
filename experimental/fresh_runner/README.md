@@ -1,6 +1,6 @@
 # Experimental restricted native runner
 
-These retained C++ constructors implement a restricted first-run and precompiled-plan interface. They now compile the maintained package kernel through a relative include, preserving its C ABI. They are not installed or invoked by `pauli-cones run` and are not covered by the public Circuit schema. No device calibration files are bundled.
+These retained C++ constructors implement a restricted first-run and precompiled-plan interface. They now compile the maintained package kernel through a relative include, preserving its C ABI. They are not installed or invoked by `quantum-circuit-simulator run` and are not covered by the public Circuit schema. No device calibration files are bundled.
 
 The fresh constructor accepts only the prototype's compact 127-wire, 144-directed-coupler physical-input schema and two/four layers of its SX/RZ/ECR matching schedule. It returns an all-Z summed observable and complete layer-angle gradients. It is not an arbitrary-circuit frontend, density-matrix or sampling simulator.
 

@@ -1,6 +1,6 @@
 """Choose a solver automatically, and sweep circuits over chips, noise and size.
 
-    from pauli_cones.experiments import solve, sweep
+    from quantum_circuit_simulator.experiments import solve, sweep
     result = solve(circuit, terms)            # value, method, exact or not, and why
     table = sweep("qaoa-ring", sizes=[8, 16, 32], devices=["heavy-hex-127", "all-to-all-ions:n=32"],
                   noise_scales=[0, 0.5, 1, 2])
@@ -29,7 +29,7 @@ from .api import ConeOverflow, Truncation
 
 def solve(circuit, terms, shifts=None, *, gradients=False, cross_check=False, tolerances=(1e-4, 1e-5),
           exact_budget=250_000):
-    """Evaluate observable terms on a Pauli Cones Circuit with the best available method.
+    """Evaluate observable terms on a `Circuit` with the best available method.
 
     Returns a dict: value, method, exact, `reasons` recording each method
     tried and why it was set aside, and with gradients=True the gradient in
@@ -190,12 +190,12 @@ def sweep(circuit, observable=None, *, devices=None, noise_scales=(1.0,), sizes=
     """Compile and solve `circuit` on each device at each noise scale (and size).
 
     circuit is OpenQASM text, a Qiskit circuit, a circuit-family name from
-    pauli_cones.circuits (with `sizes`), or a function n -> circuit.
+    quantum_circuit_simulator.circuits (with `sizes`), or a function n -> circuit.
     observable is a string, or a function n -> string; a family supplies its
     own when it is None. devices are Device objects, catalogue names, or
     "name:k=v,k=v" strings; None evaluates only the ideal circuit. A device
     written "fit:name..." (or "fit:" followed by a .json path) grows to fit
-    each size with the same architecture (pauli_cones.design.expand).
+    each size with the same architecture (quantum_circuit_simulator.design.expand).
 
     progress is called after each point with its row (contracts.Progress
     prints JSON lines); checkpoint is a path to a JSON-lines file of completed

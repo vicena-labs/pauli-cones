@@ -23,7 +23,7 @@ jobs:
       - run: python -m build
       - run: python -m pip install dist/*.whl
       - run: python -m pytest -q
-      - run: pauli-cones example > "$RUNNER_TEMP/pauli-example.json" && pauli-cones run "$RUNNER_TEMP/pauli-example.json"
+      - run: quantum-circuit-simulator example > "$RUNNER_TEMP/pauli-example.json" && quantum-circuit-simulator run "$RUNNER_TEMP/pauli-example.json"
   comparison-contracts:
     runs-on: ubuntu-24.04
     env:

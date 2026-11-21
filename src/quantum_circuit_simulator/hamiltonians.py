@@ -7,7 +7,7 @@ under the Jordan-Wigner transformation. `trotter` and `qaoa` build Programs
 whose angles are shared, weighted parameters, so one prepared plan serves
 every time or angle value and gradients come for free.
 
-    from pauli_cones import hamiltonians as hm
+    from quantum_circuit_simulator import hamiltonians as hm
     h = hm.transverse_field_ising(hm.grid(4, 4), j=1.0, h=0.5)
     circuit = hm.trotter(h, time="t", steps=4)     # time as a parameter
     h.expectation(circuit, values={"t": 0.8})
@@ -121,7 +121,7 @@ class Hamiltonian:
         return solve(converted.circuit, self.terms, shifts, gradients=gradients, **options)
 
     def to_dict(self):
-        return {"schema": "pauli-cones-hamiltonian/1", "name": self.name, "n_qubits": self.n_qubits,
+        return {"schema": "quantum-circuit-simulator-hamiltonian/1", "name": self.name, "n_qubits": self.n_qubits,
                 "terms": [{"coefficient": c, "pauli": {str(q): a for q, a in sorted(p.items())}}
                           for c, p in self.terms]}
 

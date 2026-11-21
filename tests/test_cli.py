@@ -5,11 +5,11 @@ from pathlib import Path
 import subprocess
 import sys
 import pytest
-from pauli_cones._example import EXAMPLE
+from quantum_circuit_simulator._example import EXAMPLE
 
 
 def cli(args,raw=None):
-    return subprocess.run([sys.executable,'-m','pauli_cones',*args],input=raw,text=True,capture_output=True,timeout=30)
+    return subprocess.run([sys.executable,'-m','quantum_circuit_simulator',*args],input=raw,text=True,capture_output=True,timeout=30)
 
 
 def test_help_and_example_and_doctor():

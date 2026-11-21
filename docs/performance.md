@@ -1,24 +1,24 @@
 # Performance evidence and its limits
 
-The architecture cleanup removes demonstrated work and adds alternate representations. It does not establish that Pauli Cones is universally fastest. Use matched inputs, noise, requested outputs, tolerances and resource budgets when comparing it.
+The architecture cleanup removes demonstrated work and adds alternate representations. It does not establish that Quantum Circuit Simulator is universally fastest. Use matched inputs, noise, requested outputs, tolerances and resource budgets when comparing it.
 
 ## Preliminary comparison of 0.4.0
 
 These figures come from the [independent harness](../benchmarks/independent/README.md) on one Apple M1 Pro laptop (6 performance and 2 efficiency cores) on 2026-11-20. Each figure is a warm median of 5 fresh parameter vectors, with a 120 s limit per run. **They are preliminary.** Background applications used about 1.5–2 of the 8 cores throughout, so single-thread figures vary by up to several times between runs, and the 8-thread figures are not reliable. [All tables](../benchmarks/independent/results-2026-11-20-laptop/v5_tables.md) keep every refusal and timeout. Every exact tool agreed with every other to 4e-13 wherever more than one finished.
 
-**Exact values, Pauli Cones on 1 thread against each competitor's faster of 1 and 8 threads:**
+**Exact values, Quantum Circuit Simulator on 1 thread against each competitor's faster of 1 and 8 threads:**
 
 - **Small noiseless circuits (12–20 qubits, 2 layers):** the graph backend (0.03 ms) is 1.7–3.2× faster than PauliPropagation.jl's reusable surrogate, the fair comparison for repeated evaluation.
 - **Noiseless, 20 qubits, 4 layers:** 0.34 ms against Aer's 157 ms.
 - **Noisy circuits:** 53–225× faster than the fastest finishing tool on 10–36 qubits. On 400 and 1,024 qubits the graph takes 0.13–0.35 ms, against 0.5–4.2 s for pauli-prop or PauliPropagation.jl.
-- **127-qubit kicked Ising, 5 steps:** Pauli Cones computes the exact magnetisation in 0.07–5.7 s per evaluation, and quimb, pauli-prop and PauliPropagation.jl did not finish within the limit.
-- **Where Pauli Cones loses:** exact mode refuses the 6–8-layer circuits and the 20-step kicked-Ising circuit, while quimb (0.19–2.2 s) and Aer (6.5 s) solve some of them exactly.
+- **127-qubit kicked Ising, 5 steps:** Quantum Circuit Simulator computes the exact magnetisation in 0.07–5.7 s per evaluation, and quimb, pauli-prop and PauliPropagation.jl did not finish within the limit.
+- **Where Quantum Circuit Simulator loses:** exact mode refuses the 6–8-layer circuits and the 20-step kicked-Ising circuit, while quimb (0.19–2.2 s) and Aer (6.5 s) solve some of them exactly.
 
-**Truncation at the same coefficient threshold:** thresholds are absolute for the other tools and divided by the observable's l1 norm for Pauli Cones, so all drop the same coefficients.
+**Truncation at the same coefficient threshold:** thresholds are absolute for the other tools and divided by the observable's l1 norm for Quantum Circuit Simulator, so all drop the same coefficients.
 
 - **127-qubit kicked Ising at 1e-4:** the truncated graph takes 1.3–12 ms, against 0.19–1.5 s for PauliPropagation.jl and 0.4–6 s for pauli-prop, with about 4–15 times smaller errors. It keeps a term while any derivative coefficient is large, which retains more of the answer.
 - **Noisy 36- and 100-qubit circuits at 1e-4:** the graph takes 11–16 ms, against 0.25–0.63 s for PauliPropagation.jl.
-- **At 1e-5,** several Pauli Cones runs exceeded the term cap or the time limit, while PauliPropagation.jl finished in 5–16 s.
+- **At 1e-5,** several Quantum Circuit Simulator runs exceeded the term cap or the time limit, while PauliPropagation.jl finished in 5–16 s.
 
 **Threads:** they help only when a circuit splits into many independent cone groups, as on the 400- and 1,024-qubit noisy circuits (2.7–3.8× at 8 threads). All 127 kicked-Ising observables form one joint group, which a single thread evaluates.
 
@@ -41,7 +41,7 @@ Reproduce against a supplied reviewed source directory:
 
 ```bash
 python benchmarks/compare_revision.py \
-  --baseline-root /path/to/reviewed/pauli-cones \
+  --baseline-root /path/to/reviewed/quantum-circuit-simulator \
   --compiler g++ --output benchmarks/results/revision_local.json
 ```
 
@@ -57,7 +57,7 @@ Dedicated value-only execution uses scalar coefficient storage and avoids tangen
 
 ## External CPU comparison
 
-The optional [comparison harness](../benchmarks/README.md) evaluates Qulacs, Qiskit Aer, IBM pauli-prop and an independent dense channel-adjoint implementation on the common supported subsets. It also compares native, graph and local-density Pauli Cones paths. Full results, failures, timings, versions and final source hashes are in [CPU comparison evidence](../benchmarks/results/cpu_comparison_2026-11-19.json).
+The optional [comparison harness](../benchmarks/README.md) evaluates Qulacs, Qiskit Aer, IBM pauli-prop and an independent dense channel-adjoint implementation on the common supported subsets. It also compares native, graph and local-density Quantum Circuit Simulator paths. Full results, failures, timings, versions and final source hashes are in [CPU comparison evidence](../benchmarks/results/cpu_comparison_2026-11-19.json).
 
 The suite records cold-process cost, preparation, fresh-angle resident evaluation, output accuracy and process RSS separately. Its five warm samples each contain three new vectors; the default has only one cold-process sample per pair. These are descriptive shared-host measurements, not confidence intervals or a production latency study.
 
@@ -73,7 +73,7 @@ These are warm costs per fresh vector. For the eight-parameter case, graph prepa
 
 Qulacs, Aer and the IBM gradient adapter use exact per-gate parameter shifts, with all occurrences summed into the shared-parameter derivative. The independent dense comparator uses analytic reverse differentiation. Neither a finite-difference baseline nor an unimplemented optimal native noisy-adjoint is presented as the competitor's best possible algorithm. The Aer adapter's unmeasured runtime binding and job-batching options are explicitly documented.
 
-IBM's term cap can truncate, whereas the native Pauli Cones cap fails. Any nonzero reported discarded coefficient norm makes that IBM result ineligible for an exact speed comparison, even if its scalar happens to pass the accuracy tolerance.
+IBM's term cap can truncate, whereas the native Quantum Circuit Simulator cap fails. Any nonzero reported discarded coefficient norm makes that IBM result ineligible for an exact speed comparison, even if its scalar happens to pass the accuracy tolerance.
 
 The Aer timeout applies to a 40-second measurement worker containing validation, many timed evaluations and setup checks. It does not mean one gradient takes 40 seconds.
 

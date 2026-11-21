@@ -8,4 +8,4 @@ Use installed native binaries from a trusted build. There is no compiler executi
 
 The experimental C++ runners have a narrower custom parser and plan format and are not hardened for hostile requests. Keep them separate from network services.
 
-Report suspected vulnerabilities privately through GitHub's private vulnerability reporting on [the repository](https://github.com/vicena-labs/pauli-cones/security/advisories/new), not in a public issue. No response-time promise is made.
+Report suspected vulnerabilities privately through GitHub's private vulnerability reporting on [the repository](https://github.com/vicena-labs/quantum-circuit-simulator/security/advisories/new), not in a public issue. No response-time promise is made.

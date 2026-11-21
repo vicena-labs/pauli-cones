@@ -1,5 +1,5 @@
 """Run after installing the wheel or `python -m pip install .`."""
-from pauli_cones import Circuit
+from quantum_circuit_simulator import Circuit
 
 circuit = Circuit(2, n_parameters=1)
 circuit.gate("RY", [0], theta=0.7, param=0)

@@ -11,7 +11,7 @@ class PauliCones:
     derivative_method = "native forward analytic gradient"
 
     def __init__(self, case, backend="native"):
-        from pauli_cones import Circuit
+        from quantum_circuit_simulator import Circuit
         circuit = Circuit(case.n_qubits, case.n_parameters, max_terms=case.max_terms)
         for op in case.operations:
             kind, wires = op["kind"], op["wires"]
@@ -29,7 +29,7 @@ class PauliCones:
         self.derivative_method = ("reusable graph reverse analytic gradient" if self.prepared.backend == "graph"
                                   else "native forward analytic gradient")
         if self.prepared.backend == "dense":
-            self.derivative_method = "Pauli Cones bounded dense analytic gradient"
+            self.derivative_method = "Quantum Circuit Simulator bounded dense analytic gradient"
 
     def evaluate(self, shifts, gradients=False):
         result = self.prepared.evaluate(shifts, gradients=gradients)

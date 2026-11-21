@@ -5,8 +5,8 @@ from functools import reduce
 import numpy as np
 import pytest
 
-from pauli_cones import hamiltonians as hm
-from pauli_cones.statevector import statevector
+from quantum_circuit_simulator import hamiltonians as hm
+from quantum_circuit_simulator.statevector import statevector
 
 
 def test_models_have_the_expected_terms_and_round_trip(tmp_path):
@@ -19,7 +19,7 @@ def test_models_have_the_expected_terms_and_round_trip(tmp_path):
     path = tmp_path / "h.json"
     xxz.to_json(path)
     again = hm.load(path)
-    assert again.terms == xxz.terms and json.loads(path.read_text())["schema"] == "pauli-cones-hamiltonian/1"
+    assert again.terms == xxz.terms and json.loads(path.read_text())["schema"] == "quantum-circuit-simulator-hamiltonian/1"
     assert hm.load("0.5*Z0*Z1 - X2").n_qubits == 3
     assert hm.load(xxz.to_string(), n_qubits=6).terms == xxz.terms
     assert hm.load(cut.to_string(), n_qubits=3).offset == -1.5
@@ -83,10 +83,10 @@ def test_qaoa_program_shares_gamma_across_weighted_edges():
     cost = hm.maxcut([(0, 1), (1, 2), (2, 0)], weights=[1.0, 2.0, 3.0])
     program = hm.qaoa(cost, depth=2)
     assert program.parameters == ["gamma_1", "beta_1", "gamma_2", "beta_2"]
-    from pauli_cones.interop import convert
+    from quantum_circuit_simulator.interop import convert
     assert convert(program).circuit.n_parameters == 4
     value = cost.expectation(program, values=[0.4, 0.3, 0.2, 0.1])["value"]
-    from pauli_cones.algorithms import cost_diagonal
+    from quantum_circuit_simulator.algorithms import cost_diagonal
     psi = statevector(program, values=[0.4, 0.3, 0.2, 0.1])
     assert value == pytest.approx(float(np.abs(psi) ** 2 @ cost_diagonal(cost)), abs=1e-12)
     assert "OPENQASM 2.0" in program.to_qasm([0.4, 0.3, 0.2, 0.1])

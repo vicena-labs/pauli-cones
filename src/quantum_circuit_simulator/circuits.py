@@ -3,7 +3,7 @@
 Each family returns (qasm, observable): dependency-free OpenQASM 2 text and a
 natural observable string for it, so sweeps over size need no other tools.
 
-    from pauli_cones.circuits import FAMILIES, family
+    from quantum_circuit_simulator.circuits import FAMILIES, family
     qasm, observable = family("qaoa-ring", n=12, p=2)
 """
 from __future__ import annotations

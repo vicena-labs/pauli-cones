@@ -1,5 +1,5 @@
 # Versions used for the recorded CPU comparison, Python 3.12.
-# Optional: these packages are not Pauli Cones runtime dependencies.
+# Optional: these packages are not Quantum Circuit Simulator runtime dependencies.
 numpy==2.5.5
 qulacs==0.6.14
 qiskit==2.6.2

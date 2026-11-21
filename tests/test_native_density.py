@@ -2,7 +2,7 @@
 import math
 import numpy as np
 import pytest
-from pauli_cones import Circuit
+from quantum_circuit_simulator import Circuit
 
 I=np.eye(2,dtype=complex)
 X=np.array([[0,1],[1,0]],complex)

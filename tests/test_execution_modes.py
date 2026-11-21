@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from pauli_cones import Circuit, ConeOverflow
+from quantum_circuit_simulator import Circuit, ConeOverflow
 
 
 @pytest.mark.parametrize('backend', ['native', 'python', 'graph', 'dense', 'auto'])
@@ -125,7 +125,7 @@ def test_idle_readout_contracts_before_exponential_initialization(backend):
 
 @pytest.mark.parametrize('name', ['RX', 'RY', 'RZ'])
 def test_closed_form_transfers_against_matrix_definition(name):
-    from pauli_cones._core._reference import cached_gate_ptm, rotation, transfer
+    from quantum_circuit_simulator._core._reference import cached_gate_ptm, rotation, transfer
     for angle in (0., math.pi/2, math.pi, -.49, 1e3):
         u, du = rotation(name[1], angle)
         expected = transfer(u, du)

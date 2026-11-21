@@ -4,7 +4,7 @@ import math
 import numpy as np
 import pytest
 
-from pauli_cones import Circuit, Truncation
+from quantum_circuit_simulator import Circuit, Truncation
 
 
 def brickwork(n, layers, nparams, noise, seed=0, angle=1.):

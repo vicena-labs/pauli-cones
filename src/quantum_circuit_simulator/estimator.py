@@ -1,6 +1,6 @@
-"""A Qiskit Estimator V2 primitive backed by Pauli Cones.
+"""A Qiskit Estimator V2 primitive backed by Quantum Circuit Simulator.
 
-    from pauli_cones.estimator import Estimator
+    from quantum_circuit_simulator.estimator import Estimator
     job = Estimator().run([(circuit, observables, parameter_values)])
     evs = job.result()[0].data.evs
 
@@ -8,7 +8,7 @@ It follows Qiskit's StatevectorEstimator: each PUB broadcasts its parameter
 values against its observables, and each element is one expectation value.
 Results are exact, so `stds` is zero; with `truncation`, each result also
 carries `error_bounds`, a rigorous bound on |exact - returned|. `noise` adds a
-uniform depolarizing and readout model (see pauli_cones.interop.Noise), which
+uniform depolarizing and readout model (see quantum_circuit_simulator.interop.Noise), which
 Qiskit circuits do not carry.
 
 When every circuit parameter enters its angles linearly (k*p + b) and there
@@ -27,16 +27,16 @@ from .interop import ConversionError, Noise, _without_readout, from_qiskit, pars
 
 
 class Estimator(BaseEstimatorV2):
-    """Pauli Cones as a Qiskit Estimator V2.
+    """Quantum Circuit Simulator as a Qiskit Estimator V2.
 
     backend, truncation and threads are passed to Circuit.prepare; noise is
-    a pauli_cones.interop.Noise or mapping; max_terms caps each cone.
+    a quantum_circuit_simulator.interop.Noise or mapping; max_terms caps each cone.
     """
 
     def __init__(self, *, backend="native", truncation=None, threads=1, noise=None, device=None,
                  max_terms=1_000_000, default_precision=0.0):
         if device is not None and noise is None:
-            noise = device.noise_model()  # a pauli_cones.devices Device's gate and readout errors
+            noise = device.noise_model()  # a quantum_circuit_simulator.devices Device's gate and readout errors
         # Readout applies to the measured Paulis (any axis), not as a circuit channel.
         noise, self.readout = _without_readout(Noise.coerce(noise))
         self.backend = backend
@@ -92,5 +92,5 @@ class Estimator(BaseEstimatorV2):
             fields["error_bounds"] = bounds
         return PubResult(DataBin(**fields), metadata={
             "target_precision": pub.precision, "circuit_metadata": circuit.metadata,
-            "pauli_cones": {"backend": self.backend, "shared_parameters": shared is not None,
+            "quantum_circuit_simulator": {"backend": self.backend, "shared_parameters": shared is not None,
                             "plans": len(plans)}})

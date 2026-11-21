@@ -1,4 +1,4 @@
-"""Explore a new undirected chip coupling graph with the Pauli Cones engine.
+"""Explore a new undirected chip coupling graph with the Quantum Circuit Simulator engine.
 
 Run from the source root after installing the package:
     python examples/architecture_playground.py --topology grid --rows 2 --cols 2
@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import time
 
-from pauli_cones import Circuit, Topology
+from quantum_circuit_simulator import Circuit, Topology
 
 
 def load_topology(kind: str, *, qubits: int = 4, rows: int = 2, cols: int = 2, path: str | None = None) -> Topology:

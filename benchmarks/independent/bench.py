@@ -1,4 +1,4 @@
-"""Matched head-to-head benchmarks: Pauli Cones vs Qulacs, Aer, pauli-prop,
+"""Matched head-to-head benchmarks: Quantum Circuit Simulator vs Qulacs, Aer, pauli-prop,
 PennyLane-Lightning (adjoint), quimb (tensor network).
 
 Every (workload, tool) pair runs in a fresh subprocess; the parent records cold
@@ -171,7 +171,7 @@ def eligible(w, tool):
 # ------------------------------------------------------------------ adapters
 class PauliCones:
     def __init__(self, w, backend="native"):
-        from pauli_cones import Circuit
+        from quantum_circuit_simulator import Circuit
         t = time.perf_counter()
         c = Circuit(w["n"], w["nparams"], max_terms=1_000_000)
         for op in w["ops"]:

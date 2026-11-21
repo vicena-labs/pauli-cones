@@ -1,6 +1,6 @@
 """Design new chips and compare them on benchmark circuits.
 
-    from pauli_cones import design, devices
+    from quantum_circuit_simulator import design, devices
     module = devices.get("heavy-hex", rows=3, row_length=7)
     chip = design.modular(module, modules=4, links="ring", link_error=2e-2)       # four linked modules
     chip = design.remove_qubits(chip, [5, 17])                                    # defective qubits
@@ -25,7 +25,7 @@ def from_edges(name, n_qubits, edges, *, family="custom", native_gates=None, **n
     """A chip from a coupler list. noise: error_1q, error_2q, readout, t1, t2, time_1q, time_2q."""
     return Device(name=name, family=family, topology=Topology(n_qubits, tuple(tuple(e) for e in edges)),
                   native_gates=native_gates or {"one_qubit": ["rz", "sx", "x"], "two_qubit": ["cz"]},
-                  description="Custom chip.", source="Designed with pauli_cones.design.",
+                  description="Custom chip.", source="Designed with quantum_circuit_simulator.design.",
                   parameters={"designed": True}, **noise)
 
 
@@ -145,7 +145,7 @@ def with_physics(chip, *, t1, t2, time_1q, time_2q, control_error_1q=0.0, contro
                    error_2q=min(0.999, e2), coupler_errors=couplers,
                    readout=tuple(readout) if readout is not None else chip.readout,
                    source="Gate errors derived from coherence times and durations plus a control error "
-                          "(pauli_cones.design.with_physics).")
+                          "(quantum_circuit_simulator.design.with_physics).")
 
 
 def compare(chips, *, family="qaoa-ring", sizes=(8, 12), noise_scale=1.0, router="greedy", circuit=None,

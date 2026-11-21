@@ -6,9 +6,9 @@ import sys
 
 import pytest
 
-from pauli_cones import Circuit
-from pauli_cones.agent import plan
-from pauli_cones.interop import expectation
+from quantum_circuit_simulator import Circuit
+from quantum_circuit_simulator.agent import plan
+from quantum_circuit_simulator.interop import expectation
 
 BELL = """OPENQASM 2.0;
 include "qelib1.inc";
@@ -19,7 +19,7 @@ cx q[0], q[1];
 
 
 def cli(args, stdin=None):
-    done = subprocess.run([sys.executable, '-m', 'pauli_cones', *args], input=stdin, text=True,
+    done = subprocess.run([sys.executable, '-m', 'quantum_circuit_simulator', *args], input=stdin, text=True,
                           capture_output=True, timeout=60)
     return done.returncode, done.stdout
 
@@ -39,7 +39,7 @@ def test_self_description_commands_are_machine_readable():
     code, out = cli(['schema'])
     assert code == 0 and {'circuit', 'openqasm'} == {s['title'] for s in json.loads(out)['request']['oneOf']}
     code, out = cli(['guide'])
-    assert code == 0 and out.startswith('# Pauli Cones: guide for agents') and 'pauli-cones plan' in out
+    assert code == 0 and out.startswith('# Quantum Circuit Simulator: guide for agents') and 'quantum-circuit-simulator plan' in out
 
 
 def test_run_openqasm_with_observable_noise_and_truncation(bell):

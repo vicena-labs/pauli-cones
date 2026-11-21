@@ -5,10 +5,10 @@ import sys
 
 import pytest
 
-from pauli_cones import Circuit
-from pauli_cones.circuits import FAMILIES, family
-from pauli_cones.experiments import solve, sweep
-from pauli_cones.interop import expectation, parse_observable
+from quantum_circuit_simulator import Circuit
+from quantum_circuit_simulator.circuits import FAMILIES, family
+from quantum_circuit_simulator.experiments import solve, sweep
+from quantum_circuit_simulator.interop import expectation, parse_observable
 
 
 @pytest.mark.parametrize("name", sorted(FAMILIES))
@@ -39,7 +39,7 @@ def _layered(n, layers, max_terms):
 
 
 def test_router_prefers_exact_and_degrades_visibly(monkeypatch):
-    from pauli_cones import experiments
+    from quantum_circuit_simulator import experiments
     obs = [(1.0, {2: "Z"}), (0.5, {1: "X", 2: "X"})]
     exact = solve(_layered(5, 2, 100_000), obs, cross_check=True)
     assert exact["method"] == "native" and exact["exact"] and exact["cross_check"]["agrees"]
@@ -77,7 +77,7 @@ def test_sweep_rows_ideal_and_noise():
 
 
 def test_sweep_of_an_openqasm_circuit_with_a_custom_device():
-    from pauli_cones import devices
+    from quantum_circuit_simulator import devices
     chip = devices.get("square-grid", rows=2, columns=3).with_noise(error_2q=1e-2)
     qasm, observable = family("qaoa-ring", n=6)
     rows = sweep(qasm, observable, devices=[chip, chip.to_dict()], noise_scales=[1]).rows
@@ -85,7 +85,7 @@ def test_sweep_of_an_openqasm_circuit_with_a_custom_device():
 
 
 def cli(*args):
-    done = subprocess.run([sys.executable, "-m", "pauli_cones", *args], capture_output=True, text=True, timeout=120)
+    done = subprocess.run([sys.executable, "-m", "quantum_circuit_simulator", *args], capture_output=True, text=True, timeout=120)
     return done.returncode, done.stdout
 
 

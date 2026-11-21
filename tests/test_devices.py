@@ -6,9 +6,9 @@ import sys
 import numpy as np
 import pytest
 
-from pauli_cones import Circuit, devices
-from pauli_cones._core._reference import depolarizing_ptm
-from pauli_cones.interop import ConversionError, expectation
+from quantum_circuit_simulator import Circuit, devices
+from quantum_circuit_simulator._core._reference import depolarizing_ptm
+from quantum_circuit_simulator.interop import ConversionError, expectation
 
 OFFLINE = [name for name in devices.CATALOG if name not in ("pegasus", "zephyr")]
 
@@ -102,14 +102,14 @@ def test_device_noise_flows_into_expectation_and_estimator():
         expectation(BELL, "Z0", device=devices.get("line", n=2))
     assert "larger device" in info.value.hint
     qiskit = pytest.importorskip("qiskit")
-    from pauli_cones.estimator import Estimator
+    from quantum_circuit_simulator.estimator import Estimator
     from qiskit import qasm2
     evs = Estimator(device=chip).run([(qasm2.loads(BELL), "IZZ")]).result()[0].data.evs
     assert float(evs) == pytest.approx(noisy, abs=1e-14)
 
 
 def cli(*args):
-    done = subprocess.run([sys.executable, "-m", "pauli_cones", *args], capture_output=True, text=True, timeout=60)
+    done = subprocess.run([sys.executable, "-m", "quantum_circuit_simulator", *args], capture_output=True, text=True, timeout=60)
     return done.returncode, json.loads(done.stdout)
 
 
@@ -128,4 +128,10 @@ def test_device_commands_and_device_flag(tmp_path):
     assert code == 0 and out["device"]["uncoupled_two_qubit_operations"] == 1  # cx q[0], q[2] on a line
     assert out["device"]["noise_applied"] and out["results"][0]["value"] < 1
     code, err = cli("device", "no-such-chip")
-    assert code == 2 and "pauli-cones devices" in err["error"]["hint"]
+    assert code == 2 and "quantum-circuit-simulator devices" in err["error"]["hint"]
+
+
+def test_device_files_from_before_the_rename_still_load():
+    data = devices.get("line", n=3).to_dict()
+    data["schema"] = "pauli-cones-device/1"
+    assert devices.Device.from_dict(data).n_qubits == 3

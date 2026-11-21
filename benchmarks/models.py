@@ -1,4 +1,4 @@
-"""Small explicit benchmark models, independent of Pauli Cones internals.
+"""Small explicit benchmark models, independent of Quantum Circuit Simulator internals.
 
 Wire zero is the least significant bit. Angles are base angles plus shared
 parameter shifts. Readout is an affine transformation of the measured Z only.

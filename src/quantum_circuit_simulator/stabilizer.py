@@ -1,4 +1,4 @@
-"""Clifford circuits at any size through Stim (optional: pip install "pauli-cones[stim]").
+"""Clifford circuits at any size through Stim (optional: pip install "quantum-circuit-simulator[stim]").
 
 Expectation values of Clifford circuits need nothing extra: Pauli propagation
 maps each Pauli to a single Pauli, so the native solver is already exact and
@@ -44,7 +44,7 @@ def sample_clifford(impl, shots, rng):
         import stim
     except ImportError as exc:
         raise ImportError("sampling beyond 28 qubits needs a Clifford circuit and Stim: "
-                          'pip install "pauli-cones[stim]"') from exc
+                          'pip install "quantum-circuit-simulator[stim]"') from exc
     circuit, exact = to_stim(impl)
     circuit.append("M", list(range(impl.nqubits)))
     sampler = circuit.compile_sampler(seed=int(rng.integers(2 ** 63)))

@@ -1,6 +1,6 @@
 # Related work and acknowledgements
 
-Pauli Cones implements Heisenberg-picture Pauli propagation: an observable is expanded in the Pauli basis and propagated backward through the circuit, and its expectation is read off against the input state. The method is known under several names, including Pauli back-propagation, sparse Pauli dynamics, Pauli paths and LOWESA. They differ mainly in how they truncate. This page credits the papers and software Pauli Cones builds on and states what it adds. Arxiv identifiers were checked on 2026-11-20.
+Quantum Circuit Simulator's main solver, the Pauli-cone method, implements Heisenberg-picture Pauli propagation: an observable is expanded in the Pauli basis and propagated backward through the circuit, and its expectation is read off against the input state. The method is known under several names, including Pauli back-propagation, sparse Pauli dynamics, Pauli paths and LOWESA. They differ mainly in how they truncate. This page credits the papers and software Quantum Circuit Simulator builds on and states what it adds. Arxiv identifiers were checked on 2026-11-20.
 
 ## Theory of Pauli propagation under noise
 
@@ -18,11 +18,11 @@ Pauli Cones implements Heisenberg-picture Pauli propagation: an observable is ex
 
 ## Software
 
-- **PauliPropagation.jl** and its framework paper by Rudolph, Jones, Teng, Angrisani and Holmes ([arXiv:2505.21606](https://arxiv.org/abs/2505.21606); [repository](https://github.com/MSRudolph/PauliPropagation.jl)) are the reference implementation and the standard review of the method. Its truncation options, its zero-state filtering, its reusable surrogate and its `rewindgradient`, based on Lin, Granet, Hémery and Dreyer's backpropagation through Pauli propagation ([arXiv:2607.15184](https://arxiv.org/abs/2607.15184)), are all prior art for features of Pauli Cones.
+- **PauliPropagation.jl** and its framework paper by Rudolph, Jones, Teng, Angrisani and Holmes ([arXiv:2505.21606](https://arxiv.org/abs/2505.21606); [repository](https://github.com/MSRudolph/PauliPropagation.jl)) are the reference implementation and the standard review of the method. Its truncation options, its zero-state filtering, its reusable surrogate and its `rewindgradient`, based on Lin, Granet, Hémery and Dreyer's backpropagation through Pauli propagation ([arXiv:2607.15184](https://arxiv.org/abs/2607.15184)), are all prior art for features of Quantum Circuit Simulator.
 - **IBM pauli-prop** ([repository](https://github.com/Qiskit/pauli-prop)) propagates Pauli sums through Qiskit circuits with coefficient and term-count truncation.
 - **PauliStrings.jl** ([arXiv:2410.09654](https://arxiv.org/abs/2410.09654)), **Majorana propagation** ([arXiv:2503.18939](https://arxiv.org/abs/2503.18939)) and Begušić's **spd** ([repository](https://github.com/tbegusic/spd)) are further CPU implementations.
 - **NVIDIA cuPauliProp** ([documentation](https://docs.nvidia.com/cuda/cuquantum/latest/cupauliprop/overview.html)) and **PADO-Pauli** ([Kim and Lee, arXiv:2610.17755](https://arxiv.org/abs/2610.17755)) run Pauli propagation on GPUs with noise, truncation and gradients.
-- Pauli Cones' tests and benchmarks compare against Qiskit Aer, Qulacs ([arXiv:2011.13524](https://arxiv.org/abs/2011.13524)), PennyLane Lightning with adjoint differentiation ([arXiv:2403.02512](https://arxiv.org/abs/2403.02512); method from [Jones and Gacon, arXiv:2009.02823](https://arxiv.org/abs/2009.02823)), quimb and Stim ([arXiv:2103.02202](https://arxiv.org/abs/2103.02202)).
+- Quantum Circuit Simulator's tests and benchmarks compare against Qiskit Aer, Qulacs ([arXiv:2011.13524](https://arxiv.org/abs/2011.13524)), PennyLane Lightning with adjoint differentiation ([arXiv:2403.02512](https://arxiv.org/abs/2403.02512); method from [Jones and Gacon, arXiv:2009.02823](https://arxiv.org/abs/2009.02823)), quimb and Stim ([arXiv:2103.02202](https://arxiv.org/abs/2103.02202)).
 
 ## Compiled graphs, gradients and error estimates
 
@@ -30,9 +30,9 @@ Pauli Cones implements Heisenberg-picture Pauli propagation: an observable is ex
 - Reverse-mode gradients over Pauli propagation appear in PADO-Pauli and monoprop, which differentiate through the stored propagation, so noise channels never need inverting. Lin et al. instead save memory by exploiting the reversibility of unitary circuits, as adjoint methods such as Jones and Gacon's do.
 - The value bound, the sum of the magnitudes of discarded coefficients, is the standard worst-case bound stated in the PauliPropagation.jl review and in IBM's operator backpropagation. PauliPropagation.jl's numerical certificates estimate the mean-square truncation error averaged over random angles by Monte Carlo sampling. LOWESA bounds the error averaged over parameters.
 
-## What Pauli Cones adds
+## What Quantum Circuit Simulator adds
 
-Pauli Cones is an engineering contribution to this method. It does not claim the method, the light-cone restriction, the discarded-coefficient value bound, compiled replay or reverse-mode differentiation through noise. It contributes:
+Its Pauli-cone solver is an engineering contribution to this method. It does not claim the method, the light-cone restriction, the discarded-coefficient value bound, compiled replay or reverse-mode differentiation through noise. It contributes:
 
 - **A bound at every binding for compiled truncated graphs.** A truncated graph keeps its discarded terms as nodes that no edge reads. Every evaluation computes the error bound from them at its own angles, so the bound holds at any binding, not only where the graph was compiled or on average. The graph compiles itself again when the bound grows. PADO-Pauli lists such a certificate as future work.
 - **A gradient bound** for truncated evaluations: the discarded terms' derivatives plus their coefficients times the generator norms of earlier stages with the same parameter.

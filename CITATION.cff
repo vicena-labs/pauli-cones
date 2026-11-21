@@ -1,13 +1,13 @@
 cff-version: 1.2.0
-message: "If you use Pauli Cones, please cite it as below."
-title: "Pauli Cones: noisy Pauli-observable expectations and shared-parameter gradients"
+message: "If you use Quantum Circuit Simulator, please cite it as below."
+title: "Quantum Circuit Simulator: noisy circuits, algorithms and chip design with the Pauli-cone method"
 type: software
 authors:
   - family-names: Farza
     given-names: Mehdi
 version: 0.5.0rc1
 license: Apache-2.0
-repository-code: "https://github.com/vicena-labs/pauli-cones"
+repository-code: "https://github.com/vicena-labs/quantum-circuit-simulator"
 keywords:
   - quantum computing
   - Pauli propagation

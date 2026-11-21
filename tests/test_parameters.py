@@ -4,8 +4,8 @@ import math
 import numpy as np
 import pytest
 
-from pauli_cones import Circuit, Truncation
-from pauli_cones.interop import expectation, from_qasm
+from quantum_circuit_simulator import Circuit, Truncation
+from quantum_circuit_simulator.interop import expectation, from_qasm
 
 
 def ansatz(n, layers, scales=True):
@@ -95,7 +95,7 @@ def test_qiskit_parameters_with_weights_share_one_plan():
     for (a, b), w in zip([(0, 1), (1, 2), (2, 3), (3, 0)], [0.5, 1.0, 1.5, 2.0]):
         qc.rzz(2 * w * gamma, a, b)
     qc.rx(2 * beta, range(4))
-    from pauli_cones.interop import from_qiskit
+    from quantum_circuit_simulator.interop import from_qiskit
     converted = from_qiskit(qc)
     assert converted.circuit.n_parameters == 2
     values = {"g": 0.37, "b": -0.21}

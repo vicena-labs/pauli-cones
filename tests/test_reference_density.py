@@ -2,7 +2,7 @@
 import math
 import numpy as np
 import pytest
-from pauli_cones._core._reference import (NoisyPauliCircuit,ConeOverflow,GATE1,GATE2,rotation,fsim,
+from quantum_circuit_simulator._core._reference import (NoisyPauliCircuit,ConeOverflow,GATE1,GATE2,rotation,fsim,
                         I,X,Y,Z,load_chip_grid)
 
 

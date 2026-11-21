@@ -1,7 +1,7 @@
 """Regressions: observable-scale invariance and max_cone_qubits at every width."""
 import pytest
 
-from pauli_cones import Circuit, ConeOverflow
+from quantum_circuit_simulator import Circuit, ConeOverflow
 
 SPARSE_AND_ALTERNATES = ['native', 'python', 'graph', 'dense', 'auto']
 

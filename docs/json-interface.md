@@ -1,6 +1,6 @@
 # JSON interface, version 1
 
-Start with `pauli-cones example`. Submit the resulting document with `pauli-cones run file.json`, or supply it on standard input with `pauli-cones run -`.
+Start with `quantum-circuit-simulator example`. Submit the resulting document with `quantum-circuit-simulator run file.json`, or supply it on standard input with `quantum-circuit-simulator run -`.
 
 Required fields are `schema_version` (exactly 1), `n_qubits`, `operations`, and `observables`. Optional fields are `n_parameters` (default 0), `max_terms` (default 50000), `readout` (default empty), `parameter_vectors` (default one zero shift vector), and `gradients` (a boolean, default true). Unknown fields and duplicate JSON keys are rejected.
 
@@ -25,10 +25,10 @@ Select `--backend native|python|graph|dense|auto`. The default is native. `--val
 `--min-coefficient F` and `--max-weight N` select the truncated mode on the native, graph and auto backends; each result then carries `error_bound` and, with gradients, `gradient_error_bound`. `--threads N` evaluates independent cone groups in parallel, with results that do not depend on N. These are command-line options rather than request fields, so version 1 requests are unchanged.
 
 ```bash
-pauli-cones run problem.json --value-only
-pauli-cones run problem.json --min-coefficient 1e-4 --max-weight 6 --threads 4
-pauli-cones run problem.json --backend graph
-pauli-cones run problem.json --backend auto
+quantum-circuit-simulator run problem.json --value-only
+quantum-circuit-simulator run problem.json --min-coefficient 1e-4 --max-weight 6 --threads 4
+quantum-circuit-simulator run problem.json --backend graph
+quantum-circuit-simulator run problem.json --backend auto
 ```
 
 Return to [README](../README.md).

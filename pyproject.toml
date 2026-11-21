@@ -3,16 +3,16 @@ requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pauli-cones"
+name = "quantum-circuit-simulator"
 version = "0.5.0rc1"
-description = "Sparse noisy Pauli-observable simulation and shared-parameter gradients"
+description = "Quantum circuit simulator by Vicena: noisy circuits on realistic chips, algorithm development with exact gradients, and chip design, for AI agents"
 readme = "README.md"
 authors = [{ name = "Mehdi Farza" }]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26,<3"]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE", "THIRD_PARTY.md"]
-keywords = ["quantum", "simulation", "pauli", "noise", "gradients"]
+keywords = ["quantum computing", "quantum circuit simulator", "pauli propagation", "noise", "gradients", "vqe", "qaoa", "chip design", "ai agents"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
@@ -22,9 +22,9 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/vicena-labs/pauli-cones"
-Issues = "https://github.com/vicena-labs/pauli-cones/issues"
-Changelog = "https://github.com/vicena-labs/pauli-cones/blob/main/CHANGELOG.md"
+Repository = "https://github.com/vicena-labs/quantum-circuit-simulator"
+Issues = "https://github.com/vicena-labs/quantum-circuit-simulator/issues"
+Changelog = "https://github.com/vicena-labs/quantum-circuit-simulator/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
@@ -35,13 +35,13 @@ algorithms = ["scipy>=1.11"]
 all = ["qiskit>=1.3", "dwave-networkx>=0.8", "stim>=1.14", "scipy>=1.11"]
 
 [project.scripts]
-pauli-cones = "pauli_cones.cli:main"
+quantum-circuit-simulator = "quantum_circuit_simulator.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-pauli_cones = ["AGENT_GUIDE.md"]
+quantum_circuit_simulator = ["AGENT_GUIDE.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

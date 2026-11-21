@@ -7,9 +7,9 @@ import sys
 import numpy as np
 import pytest
 
-from pauli_cones import design, devices
-from pauli_cones._core._reference import relaxation_ptm
-from pauli_cones.compiler import compile_circuit
+from quantum_circuit_simulator import design, devices
+from quantum_circuit_simulator._core._reference import relaxation_ptm
+from quantum_circuit_simulator.compiler import compile_circuit
 
 
 @pytest.mark.parametrize("t, t1, t2", [(30e-9, 300e-6, 200e-6), (5e-6, 20e-6, 15e-6)])
@@ -75,7 +75,7 @@ def test_compare_ranks_a_quieter_chip_first():
 
 
 def cli(*args):
-    done = subprocess.run([sys.executable, "-m", "pauli_cones", *args], capture_output=True, text=True, timeout=120)
+    done = subprocess.run([sys.executable, "-m", "quantum_circuit_simulator", *args], capture_output=True, text=True, timeout=120)
     return done.returncode, done.stdout
 
 

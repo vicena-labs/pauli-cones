@@ -1,6 +1,6 @@
 # Architecture
 
-Pauli Cones computes a weighted sum of noisy Pauli expectations and optional analytic derivatives with respect to shared gate angles. The public input state is the zero product state. Parameter vectors are additive shifts from the base circuit; every occurrence contributes to its shared derivative. Noise parameters remain fixed.
+The Pauli-cone solver at the core of Quantum Circuit Simulator computes a weighted sum of noisy Pauli expectations and optional analytic derivatives with respect to shared gate angles. The public input state is the zero product state. Parameter vectors are additive shifts from the base circuit; every occurrence contributes to its shared derivative. Noise parameters remain fixed.
 
 ## Preparation and ownership
 

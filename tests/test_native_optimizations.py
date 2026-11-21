@@ -9,8 +9,8 @@ import math
 import numpy as np
 import pytest
 
-from pauli_cones._core._native import CStage, CStats, CTerm, NativePrepared, library
-from pauli_cones._core._reference import ConeOverflow, NoisyPauliCircuit
+from quantum_circuit_simulator._core._native import CStage, CStats, CTerm, NativePrepared, library
+from quantum_circuit_simulator._core._reference import ConeOverflow, NoisyPauliCircuit
 
 
 I = np.eye(2, dtype=complex)

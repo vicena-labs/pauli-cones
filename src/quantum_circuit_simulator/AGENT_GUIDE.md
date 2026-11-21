@@ -1,6 +1,8 @@
-# Pauli Cones: guide for agents
+# Quantum Circuit Simulator: guide for agents
 
-Pauli Cones computes expectation values of Pauli observables on noisy quantum circuits that start in |0...0>, and their exact gradients in up to 4,096 shared parameters. It propagates the observable backward through its light cone, so cost depends on the cone, not the register: a local observable on a 1,000-qubit shallow circuit is cheap, while a deep, noiseless, highly entangling circuit may be refused or need truncation. Around that core it simulates states and samples bitstrings, builds Hamiltonians, optimises VQE and QAOA, extrapolates to zero noise, estimates shot noise, and models, compiles onto and designs chips.
+Quantum Circuit Simulator, by Vicena, simulates noisy quantum circuits on realistic chips, develops algorithms with exact gradients, and designs chips. It computes expectation values and gradients in up to 4,096 shared parameters; simulates states and samples bitstrings; builds Hamiltonians; optimises VQE and QAOA; extrapolates to zero noise; estimates shot noise; and models, compiles onto and designs chips.
+
+Its main solver is the **Pauli-cone method**: each observable is propagated backward through its light cone as a sum of Paulis, so cost depends on the cone, not the register. A local observable on a 1,000-qubit shallow circuit is cheap, while a deep, noiseless, highly entangling circuit may be refused or need truncation. The router falls back to state simulation where that fits, and every result names the method used.
 
 ## When to use it
 
@@ -16,32 +18,32 @@ Pauli Cones computes expectation values of Pauli observables on noisy quantum ci
 Every command prints one JSON document. Exit code 0 is success, 2 an invalid request or failed evaluation, and 124 a timeout. On failure, read `error.hint`: it names the next thing to try.
 
 ```bash
-pauli-cones capabilities                                        # gates, noise, limits, backends
-pauli-cones plan circuit.qasm --observable "Z0*Z1"              # dry run: is exact feasible?
-pauli-cones run circuit.qasm --observable "0.5*Z0*Z1 - X3"      # value and gradients
-pauli-cones run circuit.qasm --observable "Z5" --min-coefficient 1e-4   # approximate, with a bound
-pauli-cones schema                                              # JSON request format
+quantum-circuit-simulator capabilities                                        # gates, noise, limits, backends
+quantum-circuit-simulator plan circuit.qasm --observable "Z0*Z1"              # dry run: is exact feasible?
+quantum-circuit-simulator run circuit.qasm --observable "0.5*Z0*Z1 - X3"      # value and gradients
+quantum-circuit-simulator run circuit.qasm --observable "Z5" --min-coefficient 1e-4   # approximate, with a bound
+quantum-circuit-simulator schema                                              # JSON request format
 ```
 
 Observables are written with wire indices, such as `"0.5*Z0*Z1 - X3"`, or as Qiskit labels, such as `"0.5*IXZ"`, where the rightmost character is wire 0. OpenQASM 2 is read directly; OpenQASM 3 needs Qiskit. Add noise to an OpenQASM circuit with `--noise-1q 0.001 --noise-2q 0.01 --readout 0.02,0.03`.
 
 ## Chips
 
-`pauli-cones devices` lists the chip catalogue:
+`quantum-circuit-simulator devices` lists the chip catalogue:
 - superconducting heavy-hex (including the 127-qubit IBM Eagle-style layout), square-grid and line chips;
 - all-to-all trapped ions;
 - neutral-atom arrays;
 - D-Wave-style Chimera, Pegasus and Zephyr annealer graphs.
 
-`pauli-cones device square-grid --param rows=6 --param columns=6` describes one chip, and `--edges` prints its full JSON description, which is also the format for a custom chip.
+`quantum-circuit-simulator device square-grid --param rows=6 --param columns=6` describes one chip, and `--edges` prints its full JSON description, which is also the format for a custom chip.
 
 Add `--device heavy-hex-127` (or `--device my_chip.json`) to `run` or `plan` to apply the chip's gate and readout errors and check its connectivity. The response's `device.uncoupled_two_qubit_operations` counts gates on qubit pairs the chip does not couple. Catalogue noise values are typical figures for each technology, not calibration data; scale them for noise studies in Python with `chip.scaled_noise(2.0)`.
 
 To run a circuit on a chip, add `--compile`:
 
 ```bash
-pauli-cones compile circuit.qasm --device heavy-hex-127                       # SWAPs, depth, duration, layouts
-pauli-cones run circuit.qasm --observable "Z0*Z5" --device heavy-hex-127 --compile --noise-scale 2
+quantum-circuit-simulator compile circuit.qasm --device heavy-hex-127                       # SWAPs, depth, duration, layouts
+quantum-circuit-simulator run circuit.qasm --observable "Z0*Z5" --device heavy-hex-127 --compile --noise-scale 2
 ```
 
 Compiling does four things:
@@ -50,16 +52,16 @@ Compiling does four things:
 3. Schedules gates with the chip's durations.
 4. Simulates gate errors (a SWAP counts as three two-qubit gates), T1/T2 decay while qubits idle, and readout error on the measured Paulis.
 
-The compile report's `layout` is `exact` when every interacting pair sits on a coupler, so no SWAPs are needed; otherwise it is `greedy`. Observables keep the circuit's own qubit numbers; they are moved to the final layout for you. `--noise-scale` multiplies every error and decoherence rate, so 0 is noise-free and repeating a run at several scales is a noise sweep. In Python: `from pauli_cones.compiler import compile_circuit`, then `compile_circuit(circuit, chip).expectation("Z0*Z1")`.
+The compile report's `layout` is `exact` when every interacting pair sits on a coupler, so no SWAPs are needed; otherwise it is `greedy`. Observables keep the circuit's own qubit numbers; they are moved to the final layout for you. `--noise-scale` multiplies every error and decoherence rate, so 0 is noise-free and repeating a run at several scales is a noise sweep. In Python: `from quantum_circuit_simulator.compiler import compile_circuit`, then `compile_circuit(circuit, chip).expectation("Z0*Z1")`.
 
 ## Sweeps
 
 Compare chips, noise levels and sizes in one command; each row gives the value, the ideal noise-free value, the deviation, the method used, and the routing cost:
 
 ```bash
-pauli-cones sweep --family qaoa-ring --sizes 8,12,16 --family-param p=2 \
+quantum-circuit-simulator sweep --family qaoa-ring --sizes 8,12,16 --family-param p=2 \
     --device heavy-hex-127 --device "all-to-all-ions:n=16" --noise-scales 0,0.5,1,2 --format markdown
-pauli-cones sweep circuit.qasm --observable "Z0*Z5" --device my_chip.json --noise-scales 1,2
+quantum-circuit-simulator sweep circuit.qasm --observable "Z0*Z5" --device my_chip.json --noise-scales 1,2
 ```
 
 Built-in families, each with its own observable:
@@ -68,17 +70,17 @@ Built-in families, each with its own observable:
 - `qaoa-ring` (MaxCut);
 - `ising-trotter`.
 
-The solver is chosen per point: exact sparse propagation, then the state vector (noise-free, up to 24 qubits) or density matrix (noisy, up to 10 qubits), then exact dense for cones of at most 6 wires, then truncation at 1e-4 and 1e-5. A truncated row has `exact: false`, an `error_bound`, and the `convergence_change` between the two tolerances. A chip too small for a size gives a row with `error` instead of stopping the sweep. In Python: `from pauli_cones.experiments import sweep, solve`.
+The solver is chosen per point: exact sparse propagation, then the state vector (noise-free, up to 24 qubits) or density matrix (noisy, up to 10 qubits), then exact dense for cones of at most 6 wires, then truncation at 1e-4 and 1e-5. A truncated row has `exact: false`, an `error_bound`, and the `convergence_change` between the two tolerances. A chip too small for a size gives a row with `error` instead of stopping the sweep. In Python: `from quantum_circuit_simulator.experiments import sweep, solve`.
 
 ## Designing chips
 
 Build a new chip from a catalogue layout, then compare it with existing chips:
 
 ```bash
-pauli-cones design --base "heavy-hex:rows=3,row_length=7" --modules 4 --links ring --link-error 0.02 \
+quantum-circuit-simulator design --base "heavy-hex:rows=3,row_length=7" --modules 4 --links ring --link-error 0.02 \
     --remove-qubits 5,17 --t1 3e-4 --t2 2e-4 --time-1q 3e-8 --time-2q 2e-7 --control-error-2q 2e-3 \
     --name modular-hh --out modular.json
-pauli-cones compare modular.json heavy-hex-127 "square-grid:rows=6,columns=6" --family qaoa-ring --sizes 8,12 \
+quantum-circuit-simulator compare modular.json heavy-hex-127 "square-grid:rows=6,columns=6" --family qaoa-ring --sizes 8,12 \
     --format markdown
 ```
 
@@ -96,42 +98,42 @@ More options:
 
 In a sweep, `--device fit:heavy-hex-127` grows the chip to fit each size.
 
-The result is an ordinary device file: use it anywhere a device goes (`--device modular.json`). `compare` ranks chips by mean deviation from the ideal value on a benchmark family, with mean SWAPs, two-qubit gates and duration. In Python, `pauli_cones.design` has the same operations.
+The result is an ordinary device file: use it anywhere a device goes (`--device modular.json`). `compare` ranks chips by mean deviation from the ideal value on a benchmark family, with mean SWAPs, two-qubit gates and duration. In Python, `quantum_circuit_simulator.design` has the same operations.
 
 ## Hamiltonians and algorithms
 
 ```bash
-pauli-cones hamiltonian --model heisenberg --lattice grid --size 3,3 --model-param j=1 --out h.json
-pauli-cones optimize --hamiltonian h.json --layers 3 --steps 300 --progress          # VQE
-pauli-cones optimize --algorithm qaoa --model maxcut --lattice regular --size 12,3 --depth 2
-pauli-cones optimize --hamiltonian h.json --device heavy-hex-127 --method spsa       # on a noisy chip
-pauli-cones zne circuit.qasm --observable "Z0*Z1" --device heavy-hex-127 --fit richardson
-pauli-cones shot-noise circuit.qasm --observable h.json --shots 10000
+quantum-circuit-simulator hamiltonian --model heisenberg --lattice grid --size 3,3 --model-param j=1 --out h.json
+quantum-circuit-simulator optimize --hamiltonian h.json --layers 3 --steps 300 --progress          # VQE
+quantum-circuit-simulator optimize --algorithm qaoa --model maxcut --lattice regular --size 12,3 --depth 2
+quantum-circuit-simulator optimize --hamiltonian h.json --device heavy-hex-127 --method spsa       # on a noisy chip
+quantum-circuit-simulator zne circuit.qasm --observable "Z0*Z1" --device heavy-hex-127 --fit richardson
+quantum-circuit-simulator shot-noise circuit.qasm --observable h.json --shots 10000
 ```
 
 - Models: `transverse-field-ising` (j, h), `heisenberg` (j, h), `maxcut` (weights), `fermi-hubbard` (t, u, mu; spin-up wires first). Lattices: `chain` (n), `grid` (rows, columns), `regular` (n, degree). `hamiltonian` also reports the exact ground energy up to 14 qubits.
 - `optimize` returns the best value, the parameters, the exact optimum as `reference` when the system is small, and a `trace` with the value and gradient norm of every iteration. QAOA adds the approximation ratio and the best sampled bitstring. Methods: `adam` (default), `gd`, `lbfgs`, and `spsa`, which uses values only, as a hardware run would.
 - `zne` amplifies every device error by each `--scales` factor, fits, and reports the estimate with the ideal and unmitigated values, so you can see how much mitigation recovers.
 - `shot-noise` gives the standard error a hardware run with that many shots would have, measuring qubit-wise commuting groups, with exact variances.
-- In Python: `from pauli_cones import hamiltonians as hm, algorithms as al`. `hm.trotter(h, "t", steps=8)` makes time a differentiable parameter; `al.Objective(circuit, h, device=chip)` gives value and gradient at any parameter vector from one reused plan.
+- In Python: `from quantum_circuit_simulator import hamiltonians as hm, algorithms as al`. `hm.trotter(h, "t", steps=8)` makes time a differentiable parameter; `al.Objective(circuit, h, device=chip)` gives value and gradient at any parameter vector from one reused plan.
 
 ## States and samples
 
 ```bash
-pauli-cones sample circuit.qasm --shots 4000 --device heavy-hex-127 --seed 1   # noisy bitstrings, wire 0 rightmost
-pauli-cones statevector circuit.qasm                                          # amplitudes, top bitstrings
+quantum-circuit-simulator sample circuit.qasm --shots 4000 --device heavy-hex-127 --seed 1   # noisy bitstrings, wire 0 rightmost
+quantum-circuit-simulator statevector circuit.qasm                                          # amplitudes, top bitstrings
 ```
 
 Sampling is exact from the density matrix up to 10 qubits, then uses one quantum trajectory per shot up to 28 qubits; larger Clifford circuits go to Stim. `exact_distribution` says whether the samples follow the noisy distribution exactly. On a chip, only the qubits the circuit uses are simulated.
 
 ## Results, progress and checkpoints
 
-Every result has `schema` (`pauli-cones-<kind>/1`) and `provenance` (versions, request SHA-256, seed, time); quote the provenance when you report a number. `compile` adds a `noise_budget` per qubit and per coupler, and `--schedule` lists every gate with its start time and duration. `--progress` streams one JSON line per completed unit on standard error. `sweep --checkpoint run.jsonl` records finished points, so a rerun after a timeout resumes instead of starting over.
+Every result has `schema` (`quantum-circuit-simulator-<kind>/1`) and `provenance` (versions, request SHA-256, seed, time); quote the provenance when you report a number. `compile` adds a `noise_budget` per qubit and per coupler, and `--schedule` lists every gate with its start time and duration. `--progress` streams one JSON line per completed unit on standard error. `sweep --checkpoint run.jsonl` records finished points, so a rerun after a timeout resumes instead of starting over.
 
 ## Recipe
 
-1. **Plan.** `pauli-cones plan`: if `exact_guaranteed` is true, exact evaluation cannot exceed the term cap.
-2. **Run exactly.** `pauli-cones run`. A `ConeOverflow` error means the exact expansion exceeded the cap. It never returns a wrong answer.
+1. **Plan.** `quantum-circuit-simulator plan`: if `exact_guaranteed` is true, exact evaluation cannot exceed the term cap.
+2. **Run exactly.** `quantum-circuit-simulator run`. A `ConeOverflow` error means the exact expansion exceeded the cap. It never returns a wrong answer.
 3. **Truncate if needed.** Rerun with `--min-coefficient 1e-4`, then `1e-5`. Accept the value once it stops changing between the two. Each result's `error_bound` is a rigorous worst case on |exact − returned|; it is usually far larger than the real error, so the convergence check is the practical test.
 4. **Sweep parameters.** For many parameter vectors of one circuit, use `--backend graph`. It compiles once and is much faster per vector; put up to 128 vectors in one JSON request's `parameter_vectors`.
 5. **Small cones.** When every cone has at most 6 wires, `--backend dense` is exact regardless of depth.
@@ -147,18 +149,18 @@ Every result has `schema` (`pauli-cones-<kind>/1`) and `provenance` (versions, r
 ## Python
 
 ```python
-from pauli_cones.interop import expectation
+from quantum_circuit_simulator.interop import expectation
 r = expectation(open("circuit.qasm").read(), "0.5*Z0*Z1 - X3")         # or a Qiskit QuantumCircuit
 r = expectation(qiskit_circuit, "Z0", values={"theta": 0.3}, gradients=True)
 print(r.value, r.gradient, r.error_bound)
 ```
 
-As a drop-in Qiskit primitive: `from pauli_cones.estimator import Estimator`, then use it wherever a Qiskit `EstimatorV2` is expected. To simulate on a chip, use `from pauli_cones import devices`, then `chip = devices.get("all-to-all-ions", n=20)`, and pass `device=chip` to `expectation` or `Estimator`.
+As a drop-in Qiskit primitive: `from quantum_circuit_simulator.estimator import Estimator`, then use it wherever a Qiskit `EstimatorV2` is expected. To simulate on a chip, use `from quantum_circuit_simulator import devices`, then `chip = devices.get("all-to-all-ions", n=20)`, and pass `device=chip` to `expectation` or `Estimator`.
 
 For repeated evaluation, convert once and reuse the plan:
 
 ```python
-from pauli_cones.interop import convert, parse_observable
+from quantum_circuit_simulator.interop import convert, parse_observable
 c = convert(qiskit_circuit)                       # Qiskit Parameters become shared parameters
 plan = c.circuit.prepare(parse_observable("Z0*Z1"), backend="graph")
 for values in sweep:

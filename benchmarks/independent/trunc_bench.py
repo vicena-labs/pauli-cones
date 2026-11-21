@@ -1,10 +1,10 @@
-"""Pauli Cones truncated mode on bench.py workloads, one fresh process per run.
+"""Quantum Circuit Simulator truncated mode on bench.py workloads, one fresh process per run.
 
     python trunc_bench.py run <out.jsonl> <abs_coeff> <max_weight|Inf> <threads> <workload ...>
     python trunc_bench.py worker <workload> <abs_coeff> <max_weight|Inf> <threads>   (internal)
 
 abs_coeff is PauliPropagation.jl's absolute min_abs_coeff; it is converted to
-Pauli Cones' relative min_coefficient by dividing by the observable l1 norm,
+Quantum Circuit Simulator's relative min_coefficient by dividing by the observable l1 norm,
 so both tools discard the same coefficients. BENCH_BACKEND=graph runs the
 truncated graph backend instead of native.
 """
@@ -18,7 +18,7 @@ def worker(name, coeff, weight, threads):
     spec = importlib.util.spec_from_file_location("bench", os.path.join(HERE, "bench.py"))
     bench = importlib.util.module_from_spec(spec); spec.loader.exec_module(bench)
     import numpy as np
-    from pauli_cones import Circuit, Truncation
+    from quantum_circuit_simulator import Circuit, Truncation
     w = bench.WORKLOADS[name]
     norm = sum(abs(c) for c, _ in w["obs"])
     backend = os.environ.get("BENCH_BACKEND", "native")

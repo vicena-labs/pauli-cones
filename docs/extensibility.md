@@ -1,13 +1,13 @@
 # Large logical registers and pluggable simulation engines
 
-Pauli Cones 0.3.0a1 separates **register width** from **active causal-cone width**. The input can name 1–16,384 wires (including an arbitrary line, grid or manually provided coupling graph), but the bundled sparse native kernel still has a fixed 256-wire Pauli-key format. The new `wide-native` route uses a single bit-parallel reverse support pass over all requested observables to compute which native stages can influence each measurement. For `native`, observables whose combined cone fits one key width are grouped, each group is remapped into `[0, group_width)`, and all groups run in one native call over one shared bound copy of the circuit (see [architecture](architecture.md#preparation-and-ownership)). The per-cone planner used by the other backends remaps each cone separately, and equal cone signatures share preparation. Wires with no relevant gates are analytically contracted against the product zero state, including asymmetric Z readout.
+Version 0.3.0a1 separates **register width** from **active causal-cone width**. The input can name 1–16,384 wires (including an arbitrary line, grid or manually provided coupling graph), but the bundled sparse native kernel still has a fixed 256-wire Pauli-key format. The new `wide-native` route uses a single bit-parallel reverse support pass over all requested observables to compute which native stages can influence each measurement. For `native`, observables whose combined cone fits one key width are grouped, each group is remapped into `[0, group_width)`, and all groups run in one native call over one shared bound copy of the circuit (see [architecture](architecture.md#preparation-and-ownership)). The per-cone planner used by the other backends remaps each cone separately, and equal cone signatures share preparation. Wires with no relevant gates are analytically contracted against the product zero state, including asymmetric Z readout.
 
 This method is **exact in its structural cone selection** (only numerical floating-point filters remain), not an exponential-scaling breakthrough. The per-cone limit is 256 and the maximum total selected stage budget is 500,000, maximum 100,000 stages per query; each cone still has its independent Pauli-term cap (`max_terms`). If an active cone is too large, raise a `ConeOverflow` rather than silently truncate; truncation happens only when a `Truncation` is requested, and its error bound is then reported. `Circuit.prepare(..., max_cone_qubits=64)` reduces the per-cone limit for application memory policy. Deep entangling 2D circuits can exceed the cap, regardless of logical width. The optimizer does **not** implement arbitrary noisy density states, bitstring samples, or syndrome-measurement feedback.
 
 ## Example: 16,384 logical qubits
 
 ```python
-from pauli_cones import Circuit
+from quantum_circuit_simulator import Circuit
 c = Circuit(16384, n_parameters=1)
 c.gate('RY', [16383], theta=0.2, param=0)
 p = c.prepare([(1.0, {16383: 'Z'})])
@@ -22,7 +22,7 @@ print(p.diagnostics)  # logical_qubits=16384, max_cone_qubits=1
 The extension point is deliberately explicit. No plugin package is discovered, downloaded, or executed automatically. Registration executes trusted Python code inside the calling interpreter:
 
 ```python
-from pauli_cones import register_backend, unregister_backend, available_backends
+from quantum_circuit_simulator import register_backend, unregister_backend, available_backends
 
 # A plan factory receives an immutable-to-the-caller private circuit snapshot
 # (NoisyPauliCircuit), normalized Pauli observables, and explicit plan budgets.

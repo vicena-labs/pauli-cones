@@ -28,7 +28,7 @@ function build(w)
             push!(circ, CliffordGate(:CZ, [Int(op[2]) + 1, Int(op[3]) + 1]))
         elseif k == "depol"
             length(op[2]) == 1 || error("only single-qubit depolarizing is supported")
-            # Pauli Cones p (total non-identity probability) damps by 1-4p/3 = 1-lambda.
+            # Quantum Circuit Simulator p (total non-identity probability) damps by 1-4p/3 = 1-lambda.
             push!(circ, DepolarizingNoise(Int(op[2][1]) + 1, 4 * Float64(op[3]) / 3))
         else
             error("unsupported op $k")

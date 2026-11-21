@@ -45,7 +45,7 @@ _ROTATIONS = {'RX': (2, 3, 1.), 'RY': (1, 2, 1.), 'RZ': (1, 3, -1.)}
 
 @lru_cache(maxsize=1)
 def library():
-    spec = importlib.util.find_spec('pauli_cones._core._native_kernel')
+    spec = importlib.util.find_spec('quantum_circuit_simulator._core._native_kernel')
     if spec is None or not spec.origin:
         raise RuntimeError('Native extension is absent. Install a built wheel or select backend=python.')
     lib=ct.CDLL(spec.origin)

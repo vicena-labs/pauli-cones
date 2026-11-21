@@ -1,6 +1,6 @@
 # Building quantum algorithms and exploring connectivity
 
-Pauli Cones is a **focused expectation-value and analytic-gradient engine**, not a general quantum hardware emulator. This page is for developers who want to adapt a parameterized circuit, compare connectivity, or extend the solver. Start with the [README](../README.md) and [architecture](architecture.md).
+Quantum Circuit Simulator's core is a **focused expectation-value and analytic-gradient engine**, the Pauli-cone solver; state simulation, sampling, algorithms and chip design are built around it. This page is for developers who want to adapt a parameterized circuit, compare connectivity, or extend the solver. Start with the [README](../README.md) and [architecture](architecture.md).
 
 ## Try it
 

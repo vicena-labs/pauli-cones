@@ -37,14 +37,14 @@ NAMES = ("native", "graph", "dense", "dense_adjoint", "qulacs", "aer", "pauli_pr
 
 def package_versions():
     versions = {}
-    for name in ("pauli-cones", "numpy", "scipy", "qulacs", "qiskit", "qiskit-aer", "pauli-prop"):
+    for name in ("quantum-circuit-simulator", "numpy", "scipy", "qulacs", "qiskit", "qiskit-aer", "pauli-prop"):
         try:
             versions[name] = metadata.version(name)
         except metadata.PackageNotFoundError:
             versions[name] = None
     try:
-        import pauli_cones
-        versions["pauli_cones_module"] = pauli_cones.__version__
+        import quantum_circuit_simulator
+        versions["pauli_cones_module"] = quantum_circuit_simulator.__version__
     except ImportError:
         versions["pauli_cones_module"] = None
     return versions

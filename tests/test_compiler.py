@@ -6,9 +6,9 @@ import sys
 
 import pytest
 
-from pauli_cones import devices
-from pauli_cones.compiler import compile_circuit
-from pauli_cones.interop import ConversionError, expectation, parse_observable, readout_expand
+from quantum_circuit_simulator import devices
+from quantum_circuit_simulator.compiler import compile_circuit
+from quantum_circuit_simulator.interop import ConversionError, expectation, parse_observable, readout_expand
 
 QASM = """OPENQASM 2.0; include "qelib1.inc"; qreg q[6];
 h q; ry(0.3) q[0]; cx q[0],q[5]; cx q[1],q[4]; rzz(0.7) q[2],q[5]; cx q[3],q[0]; rx(0.4) q[4];
@@ -100,7 +100,7 @@ def test_compile_refuses_annealers_and_oversized_circuits():
 
 
 def cli(*args):
-    done = subprocess.run([sys.executable, "-m", "pauli_cones", *args], capture_output=True, text=True, timeout=60)
+    done = subprocess.run([sys.executable, "-m", "quantum_circuit_simulator", *args], capture_output=True, text=True, timeout=60)
     return done.returncode, json.loads(done.stdout)
 
 
@@ -124,7 +124,7 @@ def test_compile_and_run_compile_commands(tmp_path):
     (("square-grid", {"rows": 4, "columns": 4}), "qaoa-ring", 12), (("square-grid", {"rows": 6, "columns": 6}), "qaoa-ring", 8),
 ])
 def test_easy_placements_need_no_swaps(chip, fam, n):
-    from pauli_cones.circuits import family
+    from quantum_circuit_simulator.circuits import family
     qasm, observable = family(fam, n=n)
     device = devices.get(chip[0], **chip[1])
     compiled = compile_circuit(qasm, device, noise=False)
@@ -133,7 +133,7 @@ def test_easy_placements_need_no_swaps(chip, fam, n):
 
 
 def test_rings_shorter_than_heavy_hex_cycles_fall_back_to_the_best_greedy_start():
-    from pauli_cones.circuits import family
+    from quantum_circuit_simulator.circuits import family
     qasm, observable = family("qaoa-ring", n=6)  # heavy-hex's shortest cycle has 12 qubits
     compiled = compile_circuit(qasm, devices.get("heavy-hex-127"), noise=False)
     assert compiled.report["layout"] == "greedy" and compiled.report["swaps"] > 0

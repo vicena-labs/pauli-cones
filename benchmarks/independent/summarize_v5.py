@@ -59,7 +59,7 @@ def why(r):
 
 print("# Fair rerun, Apple M1 Pro (6 performance + 2 efficiency cores), macOS\n")
 print("Warm medians of 5 fresh parameter vectors per run, one fresh process per run, 120 s limit. "
-      "Pauli Cones ran at 1 thread; every competitor ran at 1 and 8 threads (pauli-prop is single-threaded). "
+      "Quantum Circuit Simulator ran at 1 thread; every competitor ran at 1 and 8 threads (pauli-prop is single-threaded). "
       "A competitor's figure is its faster configuration. PC graph rows count only runs where the graph did not fall back to native.\n")
 print("**Caveats.** The laptop was not quiet: other applications used about 1.5-2 of the 8 cores throughout, so "
       "8-thread figures are unreliable and 1-thread figures carry run-to-run variation of up to several times. "
@@ -103,7 +103,7 @@ for w in order:
     print(f"| {w} | {f(min(ours)) if ours else '—'} | {best[1] if best else 'none'} | {f(best[0]) if best else '—'} | "
           f"{f'{best[0] / min(ours):.3g}×' if ours and best else '—'} |")
 
-print("\n## Pauli Cones threads (1 → 8)\n")
+print("\n## Quantum Circuit Simulator threads (1 → 8)\n")
 print("| Workload | Native 1t | Native 8t | Speed-up |")
 print("|---|---|---|---|")
 for w in order:
@@ -124,7 +124,7 @@ print("Largest difference between any two exact results on the same input: "
       f"{max(spread.values()):.2g} (over {len(spread)} workloads).\n")
 
 print("## Truncated, coefficient threshold only (max_weight = Inf)\n")
-print("Thresholds are absolute for PauliPropagation.jl and pauli-prop and converted to Pauli Cones' relative form by "
+print("Thresholds are absolute for PauliPropagation.jl and pauli-prop and converted to Quantum Circuit Simulator's relative form by "
       "dividing by the observable l1 norm, so all tools drop the same coefficients. Errors are absolute, in units of "
       "the observable's l1 norm, against the exact references above where one exists. A value timing counts even "
       "when the same run later failed computing gradients.\n")

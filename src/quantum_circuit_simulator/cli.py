@@ -2,23 +2,23 @@
 document (except `guide`, which prints Markdown), and every failure carries
 error.type, error.message and error.hint with a concrete next step.
 
-    pauli-cones capabilities | schema | guide | example | doctor
-    pauli-cones devices | device NAME [--param k=v]   # chip catalogue and descriptions
-    pauli-cones compile INPUT --device NAME           # route onto a chip: SWAPs, depth, duration, layouts
-    pauli-cones sweep [INPUT | --family NAME --sizes 8,16] --device SPEC ... --noise-scales 0,1,2
-    pauli-cones design --base NAME [--modules 4 --links ring] [--t1 ... --t2 ...] --out chip.json
-    pauli-cones compare CHIP CHIP ... --family qaoa-ring --sizes 8,12   # rank chip designs
-    pauli-cones plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
-    pauli-cones run   INPUT [--observable EXPR] [options]
-    pauli-cones hamiltonian --model heisenberg --lattice grid --size 3,3 [--out h.json]
-    pauli-cones optimize --algorithm vqe|qaoa --hamiltonian h.json [--device NAME] [--progress]
-    pauli-cones sample INPUT --shots 1000 [--device NAME]  # bitstrings, noise and readout included
-    pauli-cones statevector INPUT                        # amplitudes of a noise-free circuit
-    pauli-cones zne INPUT --observable EXPR --device NAME   # zero-noise extrapolation
-    pauli-cones shot-noise INPUT --observable EXPR --shots 10000   # statistical error of a hardware run
+    quantum-circuit-simulator capabilities | schema | guide | example | doctor
+    quantum-circuit-simulator devices | device NAME [--param k=v]   # chip catalogue and descriptions
+    quantum-circuit-simulator compile INPUT --device NAME           # route onto a chip: SWAPs, depth, duration, layouts
+    quantum-circuit-simulator sweep [INPUT | --family NAME --sizes 8,16] --device SPEC ... --noise-scales 0,1,2
+    quantum-circuit-simulator design --base NAME [--modules 4 --links ring] [--t1 ... --t2 ...] --out chip.json
+    quantum-circuit-simulator compare CHIP CHIP ... --family qaoa-ring --sizes 8,12   # rank chip designs
+    quantum-circuit-simulator plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
+    quantum-circuit-simulator run   INPUT [--observable EXPR] [options]
+    quantum-circuit-simulator hamiltonian --model heisenberg --lattice grid --size 3,3 [--out h.json]
+    quantum-circuit-simulator optimize --algorithm vqe|qaoa --hamiltonian h.json [--device NAME] [--progress]
+    quantum-circuit-simulator sample INPUT --shots 1000 [--device NAME]  # bitstrings, noise and readout included
+    quantum-circuit-simulator statevector INPUT                        # amplitudes of a noise-free circuit
+    quantum-circuit-simulator zne INPUT --observable EXPR --device NAME   # zero-noise extrapolation
+    quantum-circuit-simulator shot-noise INPUT --observable EXPR --shots 10000   # statistical error of a hardware run
 
 INPUT is a JSON request, an OpenQASM file (.qasm), or - for standard input.
-Every result carries `schema` (pauli-cones-<kind>/1) and `provenance`; --progress
+Every result carries `schema` (quantum-circuit-simulator-<kind>/1) and `provenance`; --progress
 streams JSON-line progress events on standard error.
 """
 from __future__ import annotations
@@ -47,8 +47,8 @@ def emit_error(kind, message, status=2, hint=None):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog='pauli-cones', description='Noisy Pauli expectations and shared-parameter '
-                                'gradients. Every command prints JSON; start with `pauli-cones guide`.')
+    p = argparse.ArgumentParser(prog='quantum-circuit-simulator', description='Noisy Pauli expectations and shared-parameter '
+                                'gradients. Every command prints JSON; start with `quantum-circuit-simulator guide`.')
     p.add_argument('--version', action='version', version=__version__)
     sub = p.add_subparsers(dest='command', required=True)
     sub.add_parser('guide', help='Print the usage guide for agents (Markdown)')
@@ -58,7 +58,7 @@ def main(argv=None):
     sub.add_parser('doctor', help='Report installed backend availability without compiling')
     sub.add_parser('devices', help='The chip catalogue: architecture families and their parameters')
     dev = sub.add_parser('device', help='Describe one chip: connectivity summary, native gates, noise')
-    dev.add_argument('name', help='Catalogue name (see `pauli-cones devices`) or a device .json file')
+    dev.add_argument('name', help='Catalogue name (see `quantum-circuit-simulator devices`) or a device .json file')
     dev.add_argument('--param', action='append', default=[], help='Catalogue parameter, e.g. --param rows=6')
     dev.add_argument('--edges', action='store_true', help='Print the full description with every coupler')
     for name, text in (('plan', 'Dry run: cone sizes, a rigorous term bound and recommended next commands'),
@@ -170,14 +170,14 @@ def main(argv=None):
             chip = devices.get(args.name, **_params(args.param))
         except (KeyError, ValueError, OSError) as exc:
             return emit_error(type(exc).__name__, str(exc).strip('"'),
-                              hint='Run `pauli-cones devices` for catalogue names and parameters.')
+                              hint='Run `quantum-circuit-simulator devices` for catalogue names and parameters.')
         print(json.dumps(chip.to_dict() if args.edges else {**chip.summary(), 'description': chip.description,
                                                             'source': chip.source}, indent=2))
         return 0
     if args.command == 'doctor':
         print(json.dumps({'version': __version__, 'python': platform.python_version(),
                           'platform': platform.platform(),
-                          'native_available': importlib.util.find_spec('pauli_cones._core._native_kernel') is not None,
+                          'native_available': importlib.util.find_spec('quantum_circuit_simulator._core._native_kernel') is not None,
                           'qiskit_available': importlib.util.find_spec('qiskit') is not None,
                           'license': 'Apache-2.0'})); return 0
     if not math.isfinite(args.timeout) or not 0 < args.timeout <= 3600:
@@ -197,7 +197,7 @@ def main(argv=None):
         for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
             env[key] = '1'
         started = time.perf_counter()
-        child = subprocess.run([sys.executable, '-m', 'pauli_cones._worker', getattr(args, 'backend', 'native'),
+        child = subprocess.run([sys.executable, '-m', 'quantum_circuit_simulator._worker', getattr(args, 'backend', 'native'),
                                 mode, json.dumps(options)], input=raw, capture_output=True,
                                timeout=args.timeout, env=env)
         elapsed = time.perf_counter() - started
@@ -211,13 +211,13 @@ def main(argv=None):
         print(json.dumps(output, allow_nan=False, separators=(',', ':'))); return 0
     except subprocess.TimeoutExpired:
         return emit_error('Timeout', 'worker exceeded wall deadline and was terminated', 124,
-                          hint='Run `pauli-cones plan` first; raise --timeout, or approximate with '
+                          hint='Run `quantum-circuit-simulator plan` first; raise --timeout, or approximate with '
                                '--min-coefficient 1e-4.')
     except _UsageError as exc:
         return emit_error('UsageError', str(exc), hint=exc.hint)
     except (OSError, ValueError, KeyError) as exc:
         return emit_error(type(exc).__name__, str(exc), hint='Check the input path and format; '
-                          'see `pauli-cones schema`.')
+                          'see `quantum-circuit-simulator schema`.')
 
 
 class _UsageError(Exception):
@@ -230,7 +230,7 @@ def _sweep(args):
     """Run a sweep in the worker and print its rows as JSON, Markdown or CSV."""
     if bool(args.input) == bool(args.family):
         return emit_error('UsageError', 'give an OpenQASM file or --family, not both or neither',
-                          hint='e.g. `pauli-cones sweep --family ghz --sizes 8,16 --device heavy-hex-127`.')
+                          hint='e.g. `quantum-circuit-simulator sweep --family ghz --sizes 8,16 --device heavy-hex-127`.')
     spec = {'noise_scales': [float(x) for x in args.noise_scales.split(',')], 'router': args.router,
             'layout': args.layout, 'idle_noise': not args.no_idle_noise, 'observable': args.observable}
     devices_spec = []
@@ -273,7 +273,7 @@ def _sweep(args):
 def _worker(mode, payload, timeout, options=None, progress=False):
     """Run one worker task; relay its progress events from stderr while it runs. Returns (code, output)."""
     import threading
-    child = subprocess.Popen([sys.executable, '-m', 'pauli_cones._worker', 'native', mode,
+    child = subprocess.Popen([sys.executable, '-m', 'quantum_circuit_simulator._worker', 'native', mode,
                               json.dumps({**(options or {}), 'progress': progress})],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     collected = []
@@ -305,7 +305,7 @@ TASK_COMMANDS = ('hamiltonian', 'optimize', 'sample', 'statevector', 'zne', 'sho
 
 
 def _task_commands(sub):
-    """Subcommands that run one JSON task (pauli_cones.tasks) in the worker."""
+    """Subcommands that run one JSON task (quantum_circuit_simulator.tasks) in the worker."""
     def hamiltonian_flags(cmd, required=False):
         cmd.add_argument('--hamiltonian', help='A Hamiltonian .json file or a Pauli sum such as "Z0*Z1 + 0.5*X0"')
         cmd.add_argument('--model', help='transverse-field-ising, heisenberg, maxcut or fermi-hubbard')
@@ -396,7 +396,7 @@ def _task(args):
         elif args.command == 'shot-noise':
             spec.update(observable=args.observable, shots=args.shots, allocation=args.allocation)
     except (KeyError, ValueError, OSError) as exc:
-        return emit_error(type(exc).__name__, str(exc).strip('"'), hint=f'See `pauli-cones {args.command} --help`.')
+        return emit_error(type(exc).__name__, str(exc).strip('"'), hint=f'See `quantum-circuit-simulator {args.command} --help`.')
     try:
         code, output = _worker('task', {'task': spec}, args.timeout, progress=args.progress)
     except subprocess.TimeoutExpired:
@@ -465,7 +465,7 @@ def _design(args):
             chip = replace(chip, name=args.name)
     except (KeyError, ValueError, OSError) as exc:
         return emit_error(type(exc).__name__, str(exc).strip('"'),
-                          hint='See `pauli-cones design --help`; base chips come from `pauli-cones devices`.')
+                          hint='See `quantum-circuit-simulator design --help`; base chips come from `quantum-circuit-simulator devices`.')
     if args.out:
         chip.to_json(args.out)
     print(json.dumps({**chip.summary(), 'description': chip.description, 'source': chip.source,
@@ -480,12 +480,12 @@ def _compare(args):
         for spec in args.chips:
             chips.append(_chip(spec).to_dict())
     except (KeyError, ValueError, OSError) as exc:
-        return emit_error(type(exc).__name__, str(exc).strip('"'), hint='Run `pauli-cones devices` for names.')
+        return emit_error(type(exc).__name__, str(exc).strip('"'), hint='Run `quantum-circuit-simulator devices` for names.')
     request = {'compare': {'chips': chips, 'family': args.family, 'sizes': [int(x) for x in args.sizes.split(',')],
                            'noise_scale': args.noise_scale, 'router': args.router,
                            'family_parameters': _params(args.family_param)}}
     try:
-        child = subprocess.run([sys.executable, '-m', 'pauli_cones._worker', 'native', 'compare', '{}'],
+        child = subprocess.run([sys.executable, '-m', 'quantum_circuit_simulator._worker', 'native', 'compare', '{}'],
                                input=json.dumps(request).encode(), capture_output=True, timeout=args.timeout)
     except subprocess.TimeoutExpired:
         return emit_error('Timeout', 'comparison exceeded its deadline', 124,
@@ -536,7 +536,7 @@ def _qasm_request(raw, args):
     """Wrap OpenQASM text and command-line options into the OpenQASM request form."""
     compiling = args.command == 'compile' or args.compile
     if compiling and not args.device:
-        raise _UsageError('compiling needs --device', 'Add e.g. --device heavy-hex-127; see `pauli-cones devices`.')
+        raise _UsageError('compiling needs --device', 'Add e.g. --device heavy-hex-127; see `quantum-circuit-simulator devices`.')
     if not args.observable and args.command != 'compile':
         raise _UsageError('OpenQASM input needs --observable',
                           'Add e.g. --observable "Z0" or --observable "0.5*Z0*Z1 - X3".')
@@ -553,7 +553,7 @@ def _qasm_request(raw, args):
                     else devices.get(args.device, **_params(args.device_param)))
             request['device'] = chip.to_dict()
         except (KeyError, ValueError, OSError) as exc:
-            raise _UsageError(str(exc).strip('"'), 'Run `pauli-cones devices` for catalogue names and parameters.')
+            raise _UsageError(str(exc).strip('"'), 'Run `quantum-circuit-simulator devices` for catalogue names and parameters.')
     if args.values:
         values = json.loads(args.values)
         request['parameter_vectors'] = values if values and isinstance(values[0], list) else [values]

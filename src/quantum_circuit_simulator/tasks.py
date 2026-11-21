@@ -2,7 +2,7 @@
 
 Each task takes a plain JSON specification and returns a JSON-ready body; the
 worker wraps it in the result envelope (schema and provenance). A circuit is
-OpenQASM text; a device is a description from `pauli-cones device NAME --edges`;
+OpenQASM text; a device is a description from `quantum-circuit-simulator device NAME --edges`;
 a Hamiltonian is {"model": ..., "lattice": ..., "size": [...], "parameters": {...}},
 {"terms": [...]} or a Pauli-sum string.
 """

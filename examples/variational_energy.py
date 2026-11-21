@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from pauli_cones import Circuit
+from quantum_circuit_simulator import Circuit
 
 
 def make_energy_problem(*, noise: float = .005):

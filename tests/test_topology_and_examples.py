@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 
 import pytest
-from pauli_cones import Circuit, Topology
+from quantum_circuit_simulator import Circuit, Topology
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 sys.path.insert(0, str(EXAMPLES))

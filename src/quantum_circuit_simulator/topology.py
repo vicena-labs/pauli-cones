@@ -103,7 +103,7 @@ class Topology:
     def add_cz_layer(self, circuit, *, depolarizing_probability: float = 0.0):
         """Apply each allowed CZ once, using disjoint matching order.
 
-        The noise parameter has the Pauli Cones probability convention.
+        The noise parameter has the Quantum Circuit Simulator probability convention.
         Independent gate noise is a user-supplied *example*, not calibration.
         """
         from .api import Circuit

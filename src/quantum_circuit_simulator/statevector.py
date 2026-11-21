@@ -1,7 +1,7 @@
 """State simulation: exact states, density matrices, noisy trajectories and sampling.
 
 Pauli propagation answers expectation values; some questions need the state
-itself or measured bitstrings. This module simulates a Pauli Cones Circuit
+itself or measured bitstrings. This module simulates a `Circuit`
 (or anything `convert` accepts) directly:
 
 - `statevector` returns the amplitudes of a noise-free circuit (up to 28 qubits).
@@ -149,7 +149,7 @@ def statevector(circuit, shifts=None, values=None):
 
 
 def _resolve(circuit, shifts, values):
-    """A Pauli Cones Circuit and shift vector from any circuit form and its parameter values."""
+    """A `Circuit` and shift vector from any circuit form and its parameter values."""
     if hasattr(circuit, "_impl"):
         return circuit, shifts
     from .interop import convert

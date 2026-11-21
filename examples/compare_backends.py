@@ -1,4 +1,4 @@
-"""Compare supported Pauli Cones representations on precisely one circuit.
+"""Compare supported Quantum Circuit Simulator representations on precisely one circuit.
 
 This is a reproducible *within-package* diagnostic, not a comparison to an
 external specialist. Preparation and evaluation are timed separately.
@@ -9,7 +9,7 @@ import json
 import math
 import time
 
-from pauli_cones import Topology
+from quantum_circuit_simulator import Topology
 from architecture_playground import build_probe
 
 

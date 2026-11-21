@@ -1,12 +1,12 @@
 """Circuits and observables from OpenQASM, Qiskit and plain text.
 
-These converters let existing circuits run on Pauli Cones without rewriting
+These converters let existing circuits run on Quantum Circuit Simulator without rewriting
 them. Every gate is decomposed exactly into the native set (H, SX, X, Y, Z, RX,
 RY, RZ, CZ, ECR); global phases are dropped, since they do not change an
 expectation value. A gate outside the table is decomposed by Qiskit's
 transpiler when Qiskit is installed.
 
-A Qiskit Parameter becomes one shared Pauli Cones parameter when every angle
+A Qiskit Parameter becomes one shared parameter when every angle
 it enters is linear in it, `k*p + b`, so one prepared plan serves every value
 of it. A circuit whose angles combine several parameters or are nonlinear in
 one (for example `p*q` or `sin(p)`), or has more than 4096 parameters, needs
@@ -33,7 +33,7 @@ MAX_SHARED_PARAMETERS = 4096
 
 
 class ConversionError(ValueError):
-    """A circuit or observable that Pauli Cones cannot represent exactly."""
+    """A circuit or observable that Quantum Circuit Simulator cannot represent exactly."""
 
     def __init__(self, message, hint=None):
         super().__init__(message)
@@ -79,8 +79,8 @@ class Program:
 
     instructions are (gate name, qubits, angles), with angles numbers or
     Angle objects; parameters lists the parameter names in the order a
-    sequence of values follows. Generators in pauli_cones.hamiltonians and
-    pauli_cones.algorithms return Programs; every entry point that accepts
+    sequence of values follows. Generators in quantum_circuit_simulator.hamiltonians and
+    quantum_circuit_simulator.algorithms return Programs; every entry point that accepts
     OpenQASM or a Qiskit circuit accepts one.
     """
     n_qubits: int
@@ -133,7 +133,7 @@ class Noise:
 
 @dataclass
 class Converted:
-    """A Pauli Cones circuit and how its shared parameters map to the source."""
+    """A `Circuit` and how its shared parameters map to the source."""
     circuit: Circuit
     parameters: list = field(default_factory=list)  # source parameters in shared-index order
     source_order: list | None = None  # the source's own parameter order, for sequences of values
@@ -262,7 +262,7 @@ def _lower(instructions, noise=None):
             measured.update(qubits)
             continue
         if name == "reset":
-            raise ConversionError("reset is not supported", "remove resets; Pauli Cones starts from |0...0>")
+            raise ConversionError("reset is not supported", "remove resets; Quantum Circuit Simulator starts from |0...0>")
         if measured.intersection(qubits):
             raise ConversionError("a gate acts after a measurement on the same qubit",
                                   "mid-circuit measurement is not supported; keep measurements at the end")
@@ -299,7 +299,7 @@ def _lower(instructions, noise=None):
 
 
 def _emit(n, ops, params, readout, max_terms):
-    """A Pauli Cones Circuit from native ops. "RELAX" ops carry (duration, t1, t2) as base."""
+    """A `Circuit` from native ops. "RELAX" ops carry (duration, t1, t2) as base."""
     c = Circuit(n, len(params), max_terms)
     for prim, wires, base, index, scale in ops:
         if prim == "DEPOL":
@@ -625,7 +625,7 @@ def readout_expand(terms, readout):
     Measuring X or Y means rotating into the Z basis and reading out, so a
     readout error (p01, p10) turns each factor P on a wire into
     alpha I + beta P, with alpha = p10 - p01 and beta = 1 - p01 - p10, the
-    same algebra Pauli Cones uses for Z. `readout` is a (p01, p10) pair for
+    same algebra Quantum Circuit Simulator uses for Z. `readout` is a (p01, p10) pair for
     every wire or a mapping of wire to pair.
     """
     if not readout:
@@ -674,11 +674,11 @@ def expectation(circuit, observable, *, values=None, gradients=False, backend="n
                 noise=None, device=None, threads=1, max_terms=1_000_000):
     """One-call expectation value of an observable on a circuit.
 
-    circuit may be a Pauli Cones Circuit, a Qiskit QuantumCircuit or OpenQASM
+    circuit may be a `Circuit`, a Qiskit QuantumCircuit or OpenQASM
     text; observable any form parse_observable accepts. values gives the
-    Qiskit parameter values (or the shift vector for a Pauli Cones Circuit).
+    Qiskit parameter values (or the shift vector for a `Circuit`).
     Returns an Evaluation; its gradient follows the converted parameters'
-    order, which `convert(...).parameters` reports. A pauli_cones.devices
+    order, which `convert(...).parameters` reports. A quantum_circuit_simulator.devices
     Device supplies the noise when `noise` is not given.
     """
     if device is not None and noise is None:

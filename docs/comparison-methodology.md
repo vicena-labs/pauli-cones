@@ -35,7 +35,7 @@ expanded before constructing the competing observable, so asymmetric readout on
 a Z product is not incorrectly replaced by a single global scaling factor.
 
 The independent density oracle constructs Kraus maps and full matrices directly,
-without using Pauli Cones PTMs, masks, or cone selection. Its reverse derivative
+without using Quantum Circuit Simulator PTMs, masks, or cone selection. Its reverse derivative
 propagates an observable through **adjoint channels**, never inverse noisy
 channels. Qulacs and Aer are checked against it, and the IBM adapter is checked
 on their common Pauli-noise subset. Tests also rebind circuits prepared at a zero
@@ -106,7 +106,7 @@ maximum errors and derivative methods are retained. The numerical contract of
 each runtime still applies; these checks are not a global error certificate.
 
 IBM uses `atol=0` and the same configured `max_terms` number. Its cap truncates
-where Pauli Cones' native cap fails closed, so **any nonzero reported discarded
+where Quantum Circuit Simulator's native cap fails closed, so **any nonzero reported discarded
 coefficient norm removes that result from eligible exact comparisons**, even if
 this particular scalar answer happens to pass the oracle tolerance. Accuracy
 failures, unsupported model errors, missing optional packages, subprocess errors,

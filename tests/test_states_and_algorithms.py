@@ -4,9 +4,9 @@ import math
 import numpy as np
 import pytest
 
-from pauli_cones import Circuit, algorithms as al, devices, hamiltonians as hm
-from pauli_cones.experiments import solve
-from pauli_cones.statevector import StateVectorPlan, expectation_from_counts, sample
+from quantum_circuit_simulator import Circuit, algorithms as al, devices, hamiltonians as hm
+from quantum_circuit_simulator.experiments import solve
+from quantum_circuit_simulator.statevector import StateVectorPlan, expectation_from_counts, sample
 
 
 def random_circuit(n, noisy, params=10, seed=1):
@@ -101,7 +101,7 @@ def test_qaoa_finds_good_cuts():
 
 
 def test_zne_recovers_the_ideal_value_better_than_raw():
-    from pauli_cones.circuits import family
+    from quantum_circuit_simulator.circuits import family
     qasm, observable = family("ghz", n=6)
     chip = devices.get("square-grid", rows=3, columns=3)
     import importlib.util
@@ -117,7 +117,7 @@ def test_shot_noise_matches_sampling_statistics():
     estimate = al.shot_noise(program, h, 2000)
     assert estimate["circuit_variants"] == 2
     # The Z group's variance from the exact distribution.
-    probabilities = np.abs(__import__("pauli_cones.statevector", fromlist=["statevector"]).statevector(program)) ** 2
+    probabilities = np.abs(__import__("quantum_circuit_simulator.statevector", fromlist=["statevector"]).statevector(program)) ** 2
     index = np.arange(8)
     zz = 1 - 2 * ((index ^ (index >> 1)) & 1)
     z2 = 1 - 2 * ((index >> 2) & 1)
@@ -125,6 +125,6 @@ def test_shot_noise_matches_sampling_statistics():
     variance = probabilities @ samples ** 2 - (probabilities @ samples) ** 2
     group = next(g for g in estimate["groups"] if g["terms"] == 2)
     assert group["variance"] == pytest.approx(variance, abs=1e-12)
-    assert estimate["value"] == pytest.approx(solve(__import__("pauli_cones.interop", fromlist=["convert"])
+    assert estimate["value"] == pytest.approx(solve(__import__("quantum_circuit_simulator.interop", fromlist=["convert"])
                                                     .convert(program).circuit, h.terms)["value"], abs=1e-12)
     assert 0 < estimate["standard_error"] < 0.1 and math.isfinite(estimate["standard_error"])

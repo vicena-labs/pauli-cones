@@ -6,11 +6,11 @@ import sys
 
 import pytest
 
-from pauli_cones import design, devices
-from pauli_cones.circuits import family
-from pauli_cones.compiler import compile_circuit
-from pauli_cones.contracts import Checkpoint
-from pauli_cones.experiments import sweep
+from quantum_circuit_simulator import design, devices
+from quantum_circuit_simulator.circuits import family
+from quantum_circuit_simulator.compiler import compile_circuit
+from quantum_circuit_simulator.contracts import Checkpoint
+from quantum_circuit_simulator.experiments import sweep
 
 
 def neighbour_distances(chip):
@@ -64,7 +64,7 @@ def test_compile_schedule_and_noise_budget_are_consistent():
 
 
 def cli(*args, stdin=None):
-    done = subprocess.run([sys.executable, "-m", "pauli_cones", *args], input=stdin, capture_output=True,
+    done = subprocess.run([sys.executable, "-m", "quantum_circuit_simulator", *args], input=stdin, capture_output=True,
                           text=True, timeout=300)
     return done.returncode, json.loads(done.stdout), done.stderr
 
@@ -86,7 +86,7 @@ QASM = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[4]; h q[0]; cx q[0],q[1]; cx 
 ])
 def test_every_command_returns_a_versioned_envelope_with_provenance(args, kind):
     code, out, _ = cli(*args, stdin=QASM if "-" in args else None)
-    assert code == 0 and out["ok"] and out["schema"] == f"pauli-cones-{kind}/1"
+    assert code == 0 and out["ok"] and out["schema"] == f"quantum-circuit-simulator-{kind}/1"
     assert {"version", "request_sha256", "created_utc"} <= set(out["provenance"])
     if kind == "compile":
         assert out["compile"]["schedule"] and out["compile"]["noise_budget"]["totals"]

@@ -1,7 +1,7 @@
 """Compile circuits onto a chip: layout, routing, scheduling and device noise.
 
-    from pauli_cones import devices
-    from pauli_cones.compiler import compile_circuit
+    from quantum_circuit_simulator import devices
+    from quantum_circuit_simulator.compiler import compile_circuit
     compiled = compile_circuit(qasm_or_qiskit_circuit, devices.get("heavy-hex-127"))
     compiled.report                     # SWAPs, two-qubit gates, depth, duration, layouts
     compiled.expectation("Z0*Z1")       # observables use the circuit's own (logical) qubits
@@ -74,10 +74,10 @@ class Compiled:
 
 def compile_circuit(circuit, device, *, layout="greedy", router="greedy", noise=True, idle_noise=True,
                     noise_scale=1.0, values=None, max_terms=1_000_000):
-    """Compile OpenQASM text, a Qiskit circuit or a gates-only Pauli Cones Circuit onto `device`."""
+    """Compile OpenQASM text, a Qiskit circuit or a gates-only `Circuit` onto `device`."""
     if device.family == "annealer":
         raise ConversionError(f"{device.name} is an annealer; circuits cannot be compiled onto it",
-                              "choose a gate-model device from `pauli-cones devices`")
+                              "choose a gate-model device from `quantum-circuit-simulator devices`")
     if router == "sabre":
         n, physical_instructions, source_order, initial, final, swaps = _sabre(circuit, device, layout, values)
         layout_method = "sabre" if layout == "greedy" else (layout if isinstance(layout, str) else "given")
@@ -126,7 +126,7 @@ def _instructions(circuit, values):
                 raise ConversionError(f"cannot compile a {stage.name} stage", "compile a gates-only circuit; "
                                       "the device adds noise")
             if stage.param >= 0:
-                raise ConversionError("compiling a Pauli Cones Circuit with shared parameters is not supported",
+                raise ConversionError("compiling a `Circuit` with shared parameters is not supported",
                                       "compile the OpenQASM or Qiskit form instead")
             angles = [stage.angle] if stage.name in {"RX", "RY", "RZ"} else []
             instructions.append((stage.name.lower(), list(stage.wires), angles))

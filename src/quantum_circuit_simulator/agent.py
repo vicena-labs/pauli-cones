@@ -1,6 +1,6 @@
 """Machine-readable descriptions, dry-run planning and error hints for agents.
 
-The command line exposes these as `pauli-cones capabilities`, `schema`,
+The command line exposes these as `quantum-circuit-simulator capabilities`, `schema`,
 `plan` and `guide`, and attaches `hint` to every error, so an agent working
 in a shell can learn the tool, check feasibility and recover from failures
 without reading the source.
@@ -32,28 +32,28 @@ def capabilities():
         "computes": "Weighted sums of Pauli expectations <psi|O|psi> of noisy circuits from |0...0>, "
                     "with exact gradients in up to 4096 shared parameters (an angle may be k*p + b).",
         "inputs": {
-            "json_request": "schema_version 1 request; see `pauli-cones schema`",
+            "json_request": "schema_version 1 request; see `quantum-circuit-simulator schema`",
             "openqasm2": "built in, no dependencies",
             "openqasm3": "needs `pip install qiskit qiskit-qasm3-import`",
-            "qiskit": "pauli_cones.interop.from_qiskit and pauli_cones.estimator.Estimator (Qiskit Estimator V2)",
+            "qiskit": "quantum_circuit_simulator.interop.from_qiskit and quantum_circuit_simulator.estimator.Estimator (Qiskit Estimator V2)",
         },
         "native_gates": ["H", "SX", "X", "Y", "Z", "RX", "RY", "RZ", "CZ", "ECR", "FSIM", "UNITARY (any fixed 1- or 2-qubit matrix)"],
-        "devices": "chip catalogue: `pauli-cones devices`; describe one with `pauli-cones device NAME`; "
+        "devices": "chip catalogue: `quantum-circuit-simulator devices`; describe one with `quantum-circuit-simulator device NAME`; "
                    "apply a chip's noise and check its connectivity with --device on run and plan; "
                    "route onto it and simulate gate errors, idle T1/T2 and readout with --compile, "
-                   "or report SWAPs, depth and duration with `pauli-cones compile`",
-        "design": "`pauli-cones design` builds chips (modules with link errors, defects, couplers, errors from "
+                   "or report SWAPs, depth and duration with `quantum-circuit-simulator compile`",
+        "design": "`quantum-circuit-simulator design` builds chips (modules with link errors, defects, couplers, errors from "
                   "T1/T2 and gate times, per-qubit spread, crosstalk, growth to more qubits with the same "
-                  "architecture) as device files; sweeps grow a chip per size with --device fit:NAME; `pauli-cones compare` ranks chips on a benchmark family",
-        "sweeps": "`pauli-cones sweep` compiles and solves over chips, noise scales and sizes, with built-in "
+                  "architecture) as device files; sweeps grow a chip per size with --device fit:NAME; `quantum-circuit-simulator compare` ranks chips on a benchmark family",
+        "sweeps": "`quantum-circuit-simulator sweep` compiles and solves over chips, noise scales and sizes, with built-in "
                   "families ghz, hardware-efficient, qaoa-ring and ising-trotter; the solver is chosen per point "
                   "(exact native, exact dense, then truncated with a convergence check)",
-        "algorithms": "`pauli-cones hamiltonian` (models and loaders), `optimize` (VQE or QAOA with exact gradients, "
+        "algorithms": "`quantum-circuit-simulator hamiltonian` (models and loaders), `optimize` (VQE or QAOA with exact gradients, "
                       "Adam, gradient descent, SPSA or L-BFGS, full trace), `zne` (zero-noise extrapolation on a device), "
                       "`shot-noise` (standard error of a hardware run with N shots)",
-        "states": "`pauli-cones sample` (bitstrings with noise and readout; exact density matrix up to 10 qubits, "
+        "states": "`quantum-circuit-simulator sample` (bitstrings with noise and readout; exact density matrix up to 10 qubits, "
                   "trajectories up to 28, Stim for larger Clifford circuits) and `statevector` (amplitudes)",
-        "outputs": {"schema": "every result carries schema pauli-cones-<kind>/1 and provenance",
+        "outputs": {"schema": "every result carries schema quantum-circuit-simulator-<kind>/1 and provenance",
                     "kinds": OUTPUTS,
                     "progress": "--progress streams JSON-line events on stderr",
                     "checkpoint": "sweep --checkpoint FILE resumes from completed points"},
@@ -119,8 +119,8 @@ def schema():
                                             "layout": {"enum": ["greedy", "trivial"]},
                                             "noise_scale": {"type": "number", "minimum": 0},
                                             "idle_noise": {"type": "boolean"}, "noise": {"type": "boolean"}}},
-                            "device": {"type": "object", "description": "a pauli-cones-device/1 chip description "
-                                       "(`pauli-cones device NAME --edges`); its noise applies unless noise is "
+                            "device": {"type": "object", "description": "a quantum-circuit-simulator-device/1 chip description "
+                                       "(`quantum-circuit-simulator device NAME --edges`); its noise applies unless noise is "
                                        "given, and the response reports uncoupled two-qubit operations"}}},
         ]},
         "response": {"ok": "boolean",
@@ -133,7 +133,7 @@ def schema():
 
 
 def guide():
-    return resources.files("pauli_cones").joinpath("AGENT_GUIDE.md").read_text(encoding="utf-8")
+    return resources.files("quantum_circuit_simulator").joinpath("AGENT_GUIDE.md").read_text(encoding="utf-8")
 
 
 def plan(circuit, observables):
@@ -181,10 +181,10 @@ def plan(circuit, observables):
                  exact_guaranteed=guaranteed)
     recommendations = []
     if guaranteed:
-        recommendations.append("Exact evaluation fits the term cap: `pauli-cones run <input>`.")
+        recommendations.append("Exact evaluation fits the term cap: `quantum-circuit-simulator run <input>`.")
     else:
         recommendations.append("Exact evaluation may exceed the term cap (the bound is a worst case; it often "
-                               "succeeds). Try `pauli-cones run <input>`; if it fails with ConeOverflow, use "
+                               "succeeds). Try `quantum-circuit-simulator run <input>`; if it fails with ConeOverflow, use "
                                "`--min-coefficient 1e-4`, then `1e-5`, and accept the value once it stops "
                                "changing.")
     if widest <= 6:
@@ -216,7 +216,7 @@ def hint_for(exc):
     if "truncation" in text:
         return "Truncation works with --backend native, graph or auto."
     if "unsupported" in text or "operation" in text:
-        return "Run `pauli-cones capabilities` for the supported gates and noise, or submit OpenQASM."
+        return "Run `quantum-circuit-simulator capabilities` for the supported gates and noise, or submit OpenQASM."
     if "parameter" in text:
         return "Each parameter vector needs exactly one value per shared parameter."
-    return "Run `pauli-cones schema` for the request format and `pauli-cones guide` for usage."
+    return "Run `quantum-circuit-simulator schema` for the request format and `quantum-circuit-simulator guide` for usage."

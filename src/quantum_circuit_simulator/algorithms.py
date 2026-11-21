@@ -1,6 +1,6 @@
 """Algorithm development: objectives, optimizers, VQE, QAOA, zero-noise extrapolation and shot noise.
 
-    from pauli_cones import algorithms as al, hamiltonians as hm
+    from quantum_circuit_simulator import algorithms as al, hamiltonians as hm
     h = hm.heisenberg(hm.chain(8))
     result = al.vqe(h, al.hardware_efficient(8, layers=3), steps=200)
     result.value, result.reference, result.trace[-1]
@@ -200,7 +200,7 @@ def minimize(objective, x0, *, method="adam", steps=200, learning_rate=0.05, tol
         try:
             from scipy.optimize import minimize as scipy_minimize
         except ImportError as exc:
-            raise ImportError('L-BFGS needs SciPy: pip install "pauli-cones[algorithms]"') from exc
+            raise ImportError('L-BFGS needs SciPy: pip install "quantum-circuit-simulator[algorithms]"') from exc
         state = {"i": 0}
 
         def fun(point):
@@ -372,7 +372,7 @@ def _extrapolate(xs, ys, fit):
         try:
             from scipy.optimize import curve_fit
         except ImportError as exc:
-            raise ImportError('the exponential fit needs SciPy: pip install "pauli-cones[algorithms]"') from exc
+            raise ImportError('the exponential fit needs SciPy: pip install "quantum-circuit-simulator[algorithms]"') from exc
         try:
             (a, b, c), _ = curve_fit(lambda s, a, b, c: a + b * np.exp(-c * s), xs, ys,
                                      p0=(0.0, ys[0], 0.5), maxfev=20000)

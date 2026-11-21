@@ -2,8 +2,8 @@
 import math
 import pytest
 import numpy as np
-from pauli_cones import Circuit, ConeOverflow, register_backend, unregister_backend, available_backends
-from pauli_cones.topology import Topology
+from quantum_circuit_simulator import Circuit, ConeOverflow, register_backend, unregister_backend, available_backends
+from quantum_circuit_simulator.topology import Topology
 
 
 @pytest.mark.parametrize('backend', ['native', 'python', 'auto', 'graph'])

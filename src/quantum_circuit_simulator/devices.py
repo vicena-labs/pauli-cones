@@ -5,7 +5,7 @@ and gate durations, in one JSON-serialisable description. The catalogue
 generates the main architecture families from their published layouts; a
 custom chip is the same description written by hand or by a design tool.
 
-    from pauli_cones import devices
+    from quantum_circuit_simulator import devices
     devices.catalog()                                # every family and its parameters
     chip = devices.get("heavy-hex-127")
     grid = devices.get("square-grid", rows=8, columns=8)
@@ -14,7 +14,7 @@ custom chip is the same description written by hand or by a design tool.
 
 Error rates are stored as vendors report them: average gate infidelity for
 gates and assignment error probabilities for readout. noise_model() converts
-gate infidelities to the depolarizing probabilities Pauli Cones simulates.
+gate infidelities to the depolarizing probabilities Quantum Circuit Simulator simulates.
 Catalogue noise values are illustrative typical figures for each technology,
 not calibration data for any particular chip; override them for real devices.
 Names describe architecture styles and do not imply a vendor's endorsement.
@@ -36,6 +36,9 @@ NEUTRAL_ATOM = dict(error_1q=1e-3, error_2q=5e-3, readout=(0.01, 0.01), t1=4.0, 
                     time_1q=0.5e-6, time_2q=0.4e-6)
 ILLUSTRATIVE = ("Illustrative typical values for this technology, not calibration data for a particular chip; "
                 "override them to model a real device.")
+
+
+DEVICE_SCHEMA = "quantum-circuit-simulator-device/1"
 
 
 @dataclass(frozen=True)
@@ -254,7 +257,7 @@ class Device:
                        name=f"{self.name} (noise x{factor:g})")
 
     def uncoupled_pairs(self, circuit):
-        """Two-qubit operations of a Pauli Cones circuit on qubit pairs this chip does not couple."""
+        """Two-qubit operations of a `Circuit` on qubit pairs this chip does not couple."""
         if circuit.n_qubits > self.n_qubits:
             raise ValueError(f"the circuit has {circuit.n_qubits} qubits; {self.name} has {self.n_qubits}")
         coupled = set(self.edges)
@@ -269,7 +272,7 @@ class Device:
 
     # ------------------------------------------------------------ JSON
     def to_dict(self):
-        return {"schema": "pauli-cones-device/1", "name": self.name, "family": self.family,
+        return {"schema": DEVICE_SCHEMA, "name": self.name, "family": self.family,
                 "n_qubits": self.n_qubits, "edges": [list(e) for e in self.edges],
                 "native_gates": self.native_gates, "error_1q": self.error_1q, "error_2q": self.error_2q,
                 "readout": list(self.readout) if self.readout else None, "t1": self.t1, "t2": self.t2,
@@ -292,7 +295,8 @@ class Device:
         unknown = set(data) - known
         if unknown:
             raise ValueError(f"unknown device fields {sorted(unknown)}")
-        if data.get("schema", "pauli-cones-device/1") != "pauli-cones-device/1":
+        # Files written before the package was renamed in 0.5.0rc1 say pauli-cones-device/1.
+        if data.get("schema", DEVICE_SCHEMA) not in (DEVICE_SCHEMA, "pauli-cones-device/1"):
             raise ValueError("unsupported device schema")
         for key in ("name", "family", "n_qubits", "edges"):
             if key not in data:

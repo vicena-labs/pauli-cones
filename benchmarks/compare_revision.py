@@ -2,16 +2,17 @@
 
 Requires Python with NumPy and a C++17 compiler. Run from this checkout:
 
-    python benchmarks/compare_revision.py --baseline-root /path/to/old/pauli-cones \
+    python benchmarks/compare_revision.py --baseline-root /path/to/old/checkout \
         --compiler g++ --output benchmarks/results/revision_local.json
 
 A short portability check:
 
-    python benchmarks/compare_revision.py --baseline-root /path/to/old/pauli-cones \
+    python benchmarks/compare_revision.py --baseline-root /path/to/old/checkout \
         --compiler g++ --fixture six_qubit_16_parameter_depth4_z --repetitions 1 \
         --output /tmp/revision_smoke.json
 
-The baseline must contain src/pauli_cones/api.py and the native C++ source.
+The baseline must contain the package's api.py and native C++ source, under
+src/quantum_circuit_simulator or, for revisions before the rename, src/pauli_cones.
 This benchmark builds both C ABIs with the same compiler in a temporary directory;
 it does not install packages, change either checkout, or retain compiled binaries.
 Builds happen before timing. Both isolated Python workers use the invoking Python
@@ -45,7 +46,19 @@ import time
 CURRENT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ('six_qubit_16_parameter_depth4_z',
             'synthetic_127q_grid_depth_4_mean_local_z')
-NATIVE_SOURCE = Path('src/pauli_cones/_core/native_pauli.cpp')
+PACKAGES = ('quantum_circuit_simulator', 'pauli_cones')   # current name, then the name before 0.5.0rc1
+
+
+def package_name(root):
+    """The package directory a checkout uses: its name changed in 0.5.0rc1."""
+    for name in PACKAGES:
+        if (root / 'src' / name / 'api.py').is_file():
+            return name
+    return PACKAGES[0]
+
+
+def native_source(root):
+    return Path('src') / package_name(root) / '_core' / 'native_pauli.cpp'
 
 
 def build_fixture(Circuit, fixture):
@@ -87,15 +100,18 @@ def build_fixture(Circuit, fixture):
 
 def source_hashes(source):
     return {path.relative_to(source).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in sorted((source / 'src/pauli_cones').rglob('*'))
+            for path in sorted((source / 'src' / package_name(source)).rglob('*'))
             if path.is_file() and path.suffix in ('.py', '.cpp')}
 
 
 def load_library(source, library_path):
+    import importlib
     sys.path.insert(0, str(source / 'src'))
-    import pauli_cones
-    from pauli_cones._core import _native, _indexed
-    imported = Path(pauli_cones.__file__).resolve()
+    name = package_name(source)
+    package = importlib.import_module(name)
+    _native = importlib.import_module(f'{name}._core._native')
+    _indexed = importlib.import_module(f'{name}._core._indexed')
+    imported = Path(package.__file__).resolve()
     if not imported.is_relative_to((source / 'src').resolve()):
         raise RuntimeError('Imported a different source checkout than requested')
     lib = ct.CDLL(str(library_path))
@@ -116,16 +132,18 @@ def worker(args):
     source = args.baseline_root if args.worker == 'original' else CURRENT_ROOT
     before = source_hashes(source)
     lib = load_library(source, args.library)
+    import importlib
     import numpy as np
-    from pauli_cones import Circuit
-    from pauli_cones._core import _reference
+    name = package_name(source)
+    Circuit = importlib.import_module(name).Circuit
+    _reference = importlib.import_module(f'{name}._core._reference')
     plans = {}
     for line in sys.stdin:
         try:
             request = json.loads(line)
             operation = request['operation']
             if operation == 'metadata':
-                result = {'package_source': 'src/pauli_cones/__init__.py',
+                result = {'package_source': f'src/{name}/__init__.py',
                           'source_hashes_before': before,
                           'source_hashes_after': source_hashes(source),
                           'native_library': args.library.name,
@@ -180,7 +198,7 @@ def build_libraries(baseline, directory, compiler):
     libraries = {}
     for variant, root in (('original', baseline), ('current', CURRENT_ROOT)):
         target = directory / f'{variant}_pauli{extension}'
-        subprocess.run([*command, *flags, str(root / NATIVE_SOURCE), '-o', str(target)], check=True)
+        subprocess.run([*command, *flags, str(root / native_source(root)), '-o', str(target)], check=True)
         libraries[variant] = target
     return libraries, {'compiler': Path(command[0]).name,
                        'compiler_version': version.stdout.splitlines()[0], 'flags': flags,
@@ -269,7 +287,7 @@ def run(args, libraries):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--baseline-root', type=Path, required=True,
-                        help='Source root of the reviewed/earlier pauli-cones package')
+                        help='Source root of the earlier checkout to compare against')
     parser.add_argument('--compiler', default=os.environ.get('CXX', 'c++'),
                         help='GCC/Clang-style C++17 compiler command (default CXX or c++)')
     parser.add_argument('--output', type=Path, default=Path('revision_comparison_local.json'))
@@ -283,8 +301,8 @@ def parse_args():
     if args.repetitions < 1 or not math.isfinite(args.atol) or args.atol <= 0:
         parser.error('repetitions and finite atol must be positive')
     for root in (args.baseline_root, CURRENT_ROOT):
-        if not (root / NATIVE_SOURCE).is_file() or not (root / 'src/pauli_cones/api.py').is_file():
-            parser.error('Both roots must contain the Pauli Cones public API and native C++ source')
+        if not (root / native_source(root)).is_file():
+            parser.error('Both roots must contain the Quantum Circuit Simulator public API and native C++ source')
     if args.worker and args.library is None:
         parser.error('worker requires its compiled library')
     return args

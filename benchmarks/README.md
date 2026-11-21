@@ -26,7 +26,7 @@ python -m benchmarks.compare --output benchmarks/results/local.json
 ```
 
 The requirements file pins the optional packages used for the recorded run.
-They are not required to install or use Pauli Cones. On Windows activate the
+They are not required to install or use Quantum Circuit Simulator. On Windows activate the
 virtual environment using its platform-specific activation script.
 
 A shorter comparison, or one without external dependencies:
@@ -49,9 +49,9 @@ performance conclusions. There are no timing assertions in tests.
 
 | Adapter | Representation | Gradient method | Noise in this suite |
 |---|---|---|---|
-| `native` | Pauli Cones sparse per-observable cones | One forward derivative propagation | Pauli errors, depolarizing, T1/T2, affine Z readout |
-| `graph` | Pauli Cones reusable arithmetic graph | Reverse differentiation through graph | Same; bounded graph can report native fallback |
-| `dense` | Pauli Cones bounded local density cones | Analytic channel adjoint | Same within configured cone limits |
+| `native` | Quantum Circuit Simulator sparse per-observable cones | One forward derivative propagation | Pauli errors, depolarizing, T1/T2, affine Z readout |
+| `graph` | Quantum Circuit Simulator reusable arithmetic graph | Reverse differentiation through graph | Same; bounded graph can report native fallback |
+| `dense` | Quantum Circuit Simulator bounded local density cones | Analytic channel adjoint | Same within configured cone limits |
 | `dense_adjoint` | Independent full dense Kraus matrices in NumPy | Analytic reverse channel adjoint | Same, at most eight qubits |
 | `qulacs` | Qulacs density matrix | Exact individual-gate parameter shift, summed into shared parameters | Same, at most eight qubits |
 | `aer` | Aer density matrix | Exact individual-gate parameter shift, summed into shared parameters | Same, at most eight qubits |
