@@ -22,9 +22,9 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/me-farza/pauli-cones"
-Issues = "https://github.com/me-farza/pauli-cones/issues"
-Changelog = "https://github.com/me-farza/pauli-cones/blob/main/CHANGELOG.md"
+Repository = "https://github.com/vicena-labs/pauli-cones"
+Issues = "https://github.com/vicena-labs/pauli-cones/issues"
+Changelog = "https://github.com/vicena-labs/pauli-cones/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]

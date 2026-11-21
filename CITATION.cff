@@ -7,7 +7,7 @@ authors:
     given-names: Mehdi
 version: 0.4.0rc1
 license: Apache-2.0
-repository-code: "https://github.com/me-farza/pauli-cones"
+repository-code: "https://github.com/vicena-labs/pauli-cones"
 keywords:
   - quantum computing
   - Pauli propagation
