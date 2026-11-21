@@ -149,7 +149,12 @@ def test_2d_horizontal_vertical_wide_matches_small_reference():
 
 
 def test_example_large_grid_vertical_matching_has_finite_result():
-    from examples.large_qubit_grid import run
+    # Load the example by path, so the test runs from any working directory.
+    import importlib.util, pathlib
+    path = pathlib.Path(__file__).resolve().parents[1] / 'examples' / 'large_qubit_grid.py'
+    spec = importlib.util.spec_from_file_location('large_qubit_grid', path)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    run = module.run
     result=run(4, 4, observable_count=4, vertical=True)
     assert result['horizontal_pairs'] == 8
     assert result['vertical_pairs'] == 8

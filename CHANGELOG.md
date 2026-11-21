@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0rc3 (release candidate, not yet published) — faster native solver and graph, truncated mode, interop and agent-first CLI
+## 0.4.0rc4 (release candidate, not yet published) — faster native solver and graph, truncated mode, interop and agent-first CLI
 
 - Add an optional truncated mode, `prepare(..., truncation=Truncation(min_coefficient, max_weight))`, on the `native`, `graph` and `auto` backends. It discards terms whose coefficients fall below a fraction of the observable's l1 norm, or that act on more than `max_weight` open wires. Every evaluation returns a rigorous `error_bound` and `gradient_error_bound`; exact plans return `None`. Other backends refuse truncation.
 - Rewrite the native term store as a flat open-addressing table that a stage updates in place. Terms with identity on the stage's wires are not touched, terms the stage maps to themselves are rescaled in place, and only moved or branching terms are rehashed. Keys use one to four 64-bit words, chosen from each group's wire count.

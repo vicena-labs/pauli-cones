@@ -2,7 +2,7 @@
 
 Noisy Pauli-observable expectations and shared-parameter gradients, with a C++ sparse CPU kernel, a Python reference, reusable execution graphs and bounded local density matrices.
 
-**Release candidate 0.4.0rc3, by Mehdi Farza, licensed under Apache-2.0.** It is not yet published on PyPI; install it from a checkout with `pip install .`. Once released, `pip install pauli-cones` will install it. The repository contains the source, tests, examples and benchmark evidence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY.md), [how to cite it](CITATION.cff) and the [related work](docs/related-work.md) it builds on.
+**Release candidate 0.4.0rc4, by Mehdi Farza, licensed under Apache-2.0.** It is not yet published on PyPI; install it from a checkout with `pip install .`. Once released, `pip install pauli-cones` will install it. The repository contains the source, tests, examples and benchmark evidence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY.md), [how to cite it](CITATION.cff) and the [related work](docs/related-work.md) it builds on.
 
 ## What it computes
 
