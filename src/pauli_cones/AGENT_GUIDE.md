@@ -50,7 +50,7 @@ Compiling does four things:
 3. Schedules gates with the chip's durations.
 4. Simulates gate errors (a SWAP counts as three two-qubit gates), T1/T2 decay while qubits idle, and readout error on the measured Paulis.
 
-Observables keep the circuit's own qubit numbers; they are moved to the final layout for you. `--noise-scale` multiplies every error and decoherence rate, so 0 is noise-free and repeating a run at several scales is a noise sweep. In Python: `from pauli_cones.compiler import compile_circuit`, then `compile_circuit(circuit, chip).expectation("Z0*Z1")`.
+The compile report's `layout` is `exact` when every interacting pair sits on a coupler, so no SWAPs are needed; otherwise it is `greedy`. Observables keep the circuit's own qubit numbers; they are moved to the final layout for you. `--noise-scale` multiplies every error and decoherence rate, so 0 is noise-free and repeating a run at several scales is a noise sweep. In Python: `from pauli_cones.compiler import compile_circuit`, then `compile_circuit(circuit, chip).expectation("Z0*Z1")`.
 
 ## Sweeps
 

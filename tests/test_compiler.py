@@ -116,3 +116,28 @@ def test_compile_and_run_compile_commands(tmp_path):
     assert routed["results"][0]["value"] == pytest.approx(ideal["results"][0]["value"], abs=1e-12)
     code, err = cli("compile", str(path))
     assert code == 2 and "--device" in err["error"]["hint"]
+
+
+@pytest.mark.parametrize("chip, fam, n", [
+    (("heavy-hex-127", {}), "ghz", 16), (("heavy-hex-127", {}), "qaoa-ring", 12),
+    (("heavy-hex-127", {}), "ising-trotter", 10), (("square-grid", {"rows": 4, "columns": 4}), "ghz", 16),
+    (("square-grid", {"rows": 4, "columns": 4}), "qaoa-ring", 12), (("square-grid", {"rows": 6, "columns": 6}), "qaoa-ring", 8),
+])
+def test_easy_placements_need_no_swaps(chip, fam, n):
+    from pauli_cones.circuits import family
+    qasm, observable = family(fam, n=n)
+    device = devices.get(chip[0], **chip[1])
+    compiled = compile_circuit(qasm, device, noise=False)
+    assert compiled.report["layout"] == "exact" and compiled.report["swaps"] == 0
+    assert compiled.expectation(observable).value == pytest.approx(expectation(qasm, observable).value, abs=1e-12)
+
+
+def test_rings_shorter_than_heavy_hex_cycles_fall_back_to_the_best_greedy_start():
+    from pauli_cones.circuits import family
+    qasm, observable = family("qaoa-ring", n=6)  # heavy-hex's shortest cycle has 12 qubits
+    compiled = compile_circuit(qasm, devices.get("heavy-hex-127"), noise=False)
+    assert compiled.report["layout"] == "greedy" and compiled.report["swaps"] > 0
+    assert compiled.expectation(observable).value == pytest.approx(expectation(qasm, observable).value, abs=1e-12)
+    # A qubit interacting with more partners than any chip qubit has neighbours cannot be placed exactly.
+    star = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[5];' + "".join(f" cz q[0],q[{i}];" for i in range(1, 5))
+    assert compile_circuit(star, devices.get("heavy-hex-127"), noise=False).report["layout"] == "greedy"

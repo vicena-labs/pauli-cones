@@ -7,9 +7,13 @@
     compiled.expectation("Z0*Z1")       # observables use the circuit's own (logical) qubits
 
 Steps:
-1. Layout places logical qubits on physical ones. "greedy" puts qubits
-   that interact often on nearby qubits; "trivial" keeps the numbering;
-   a list gives the physical qubit of each logical one.
+1. Layout places logical qubits on physical ones. "greedy" first looks for
+   an exact placement with every interacting pair on a coupler, so no SWAPs
+   are needed (a chain finds a path, a ring a cycle); failing that, it
+   places qubits near their partners from several starting qubits and keeps
+   the placement needing the fewest SWAPs. "trivial" keeps the numbering;
+   a list gives the physical qubit of each logical one. The report's
+   `layout` says which method was used.
 2. Routing inserts SWAPs so every two-qubit gate acts on coupled qubits.
    "greedy" moves one qubit along a shortest path; "sabre" uses Qiskit's
    SABRE router, usually with fewer SWAPs, when Qiskit is installed.
@@ -73,6 +77,7 @@ def compile_circuit(circuit, device, *, layout="greedy", router="greedy", noise=
                               "choose a gate-model device from `pauli-cones devices`")
     if router == "sabre":
         n, physical_instructions, source_order, initial, final, swaps = _sabre(circuit, device, layout, values)
+        layout_method = "sabre" if layout == "greedy" else (layout if isinstance(layout, str) else "given")
         ops, params = _lower(physical_instructions)
         routed_ops = ops
     elif router == "greedy":
@@ -81,7 +86,7 @@ def compile_circuit(circuit, device, *, layout="greedy", router="greedy", noise=
             raise ConversionError(f"the circuit has {n} qubits; {device.name} has {device.n_qubits}",
                                   "choose a larger device")
         ops, params = _lower(instructions)
-        initial = _layout(layout, n, ops, device)
+        initial, layout_method = _layout(layout, n, ops, device)
         routed_ops, final, swaps = _route(ops, initial, device)
     else:
         raise ValueError('router must be "greedy" or "sabre"')
@@ -90,7 +95,7 @@ def compile_circuit(circuit, device, *, layout="greedy", router="greedy", noise=
                                  noise_scale if noise else 0.0)
     readout = gate_noise.readout if gate_noise else None
     converted = _emit(device.n_qubits, scheduled, params, None, max_terms)  # readout acts on observables
-    report = {"device": device.name, "router": router, "layout": layout if isinstance(layout, str) else "given",
+    report = {"device": device.name, "router": router, "layout": layout_method,
               "logical_qubits": n, "swaps": swaps, **facts, "noise": bool(noise), "idle_noise": bool(idle_noise and noise),
               "noise_scale": noise_scale, "initial_layout": initial, "final_layout": final}
     return Compiled(converted.circuit, device, initial, final, params, source_order, report, readout)
@@ -114,20 +119,133 @@ def _instructions(circuit, values):
 
 # ---------------------------------------------------------------- layout
 def _layout(layout, n, ops, device):
+    """(initial layout, method): "given", "trivial", "exact" or "greedy".
+
+    "greedy" first searches for an exact placement, where every interacting
+    pair of qubits sits on a coupler and routing needs no SWAPs (a chain finds
+    a path, a ring a cycle). When none exists or the search budget runs out,
+    it places qubits greedily from several well-spread starting qubits and
+    keeps the placement that routes with the fewest SWAPs.
+    """
     if isinstance(layout, (list, tuple)):
         if len(layout) != n or len(set(layout)) != n or not all(0 <= p < device.n_qubits for p in layout):
             raise ValueError(f"layout must give {n} distinct physical qubits of {device.name}")
-        return list(layout)
+        return list(layout), "given"
     if layout == "trivial":
-        return list(range(n))
+        return list(range(n)), "trivial"
     if layout != "greedy":
         raise ValueError('layout must be "greedy", "trivial" or a list of physical qubits')
     weights = Counter(tuple(sorted(w)) for prim, w, *_ in ops if prim in TWO_QUBIT)
+    adjacency = device._adjacency()
+    exact = _embed(n, weights, adjacency)
+    if exact is not None:
+        return exact, "exact"
+    best = None
+    for start in _spread(adjacency, 8):
+        candidate = _greedy(n, weights, adjacency, start)
+        swaps = _route(ops, candidate, device)[2]
+        if best is None or swaps < best[0]:
+            best = (swaps, candidate)
+        if swaps == 0:
+            break
+    return best[1], "greedy"
+
+
+class _Budget(Exception):
+    pass
+
+
+def _embed(n, weights, adjacency, budget=100_000):
+    """A placement putting every interacting pair on a coupler, or None.
+
+    Backtracking subgraph matching: logical qubits are placed in breadth-first
+    order, each on a free physical qubit coupled to all of its placed partners
+    and with enough free neighbours left for its unplaced ones. The search
+    stops after `budget` placements; qubits without interactions go last,
+    next to the placed ones.
+    """
+    partners = {q: set() for q in range(n)}
+    for a, b in weights:
+        partners[a].add(b)
+        partners[b].add(a)
+    interacting = [q for q in range(n) if partners[q]]
+    if not interacting or len(interacting) > 500:
+        return None
+    if max(len(partners[q]) for q in interacting) > max(len(a) for a in adjacency):
+        return None
+    neighbours = [set(a) for a in adjacency]
+    order, seen = [], set()
+    for root in sorted(interacting, key=lambda q: (-len(partners[q]), q)):
+        if root in seen:
+            continue
+        queue, seen = deque([root]), seen | {root}
+        while queue:
+            q = queue.popleft()
+            order.append(q)
+            for m in sorted(partners[q], key=lambda m: (-len(partners[m]), m)):
+                if m not in seen:
+                    seen.add(m)
+                    queue.append(m)
+    by_degree = sorted(range(len(adjacency)), key=lambda p: (-len(adjacency[p]), p))
+    position, used, steps = {}, set(), [0]
+
+    def candidates(q):
+        placed = [position[m] for m in partners[q] if m in position]
+        if placed:
+            return sorted(set.intersection(*(neighbours[p] for p in placed)) - used,
+                          key=lambda p: (-len(adjacency[p]), p))
+        return [p for p in by_degree if p not in used][:64]  # the start of a component
+
+    def extend(i):
+        if i == len(order):
+            return True
+        q = order[i]
+        unplaced = sum(1 for m in partners[q] if m not in position)
+        for p in candidates(q):
+            if len(neighbours[p] - used) < unplaced:
+                continue
+            steps[0] += 1
+            if steps[0] > budget:
+                raise _Budget
+            position[q] = p
+            used.add(p)
+            if extend(i + 1):
+                return True
+            del position[q]
+            used.discard(p)
+        return False
+
+    try:
+        if not extend(0):
+            return None
+    except (_Budget, RecursionError):
+        return None
+    for q in range(n):  # qubits without interactions: next to the placed ones
+        if q not in position:
+            near = _bfs_multi(adjacency, list(used))
+            p = min((p for p in range(len(adjacency)) if p not in used), key=lambda p: (near[p], p))
+            position[q] = p
+            used.add(p)
+    return [position[q] for q in range(n)]
+
+
+def _spread(adjacency, k):
+    """Up to k starting qubits: the best-connected one, then each farthest from those chosen."""
+    first = max(range(len(adjacency)), key=lambda p: (len(adjacency[p]), -p))
+    chosen = [first]
+    while len(chosen) < min(k, len(adjacency)):
+        far = _bfs_multi(adjacency, chosen)
+        nxt = max((p for p in range(len(adjacency)) if p not in chosen), key=lambda p: (far[p], len(adjacency[p]), -p))
+        chosen.append(nxt)
+    return chosen
+
+
+def _greedy(n, weights, adjacency, hub):
+    """Place logical qubits in order of interaction, each where its partners are nearest."""
     total = Counter()
     for (a, b), w in weights.items():
         total[a] += w
         total[b] += w
-    adjacency = device._adjacency()
     order = sorted(range(n), key=lambda q: (-total[q], q))
     placed, used, distance_cache = {}, set(), {}
 
@@ -136,18 +254,17 @@ def _layout(layout, n, ops, device):
             distance_cache[p] = _bfs(adjacency, p)
         return distance_cache[p]
 
-    hub = max(range(device.n_qubits), key=lambda p: (len(adjacency[p]), -p))
     for q in order:
         partners = [(placed[m], w) for (a, b), w in weights.items() for m in (a, b)
                     if q in (a, b) and m != q and m in placed]
         if not placed:
             choice = hub
         elif partners:
-            free = [p for p in range(device.n_qubits) if p not in used]
+            free = [p for p in range(len(adjacency)) if p not in used]
             choice = min(free, key=lambda p: (sum(w * distances(pp)[p] for pp, w in partners), p))
         else:  # no placed partner: the free qubit nearest the placed ones
             near = _bfs_multi(adjacency, list(used))
-            choice = min((p for p in range(device.n_qubits) if p not in used), key=lambda p: (near[p], p))
+            choice = min((p for p in range(len(adjacency)) if p not in used), key=lambda p: (near[p], p))
         placed[q] = choice
         used.add(choice)
     return [placed[q] for q in range(n)]
