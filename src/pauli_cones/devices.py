@@ -62,6 +62,8 @@ class Device:
     source: str = ""
     parameters: dict = field(default_factory=dict)
     coupler_errors: dict = field(default_factory=dict)  # (a, b) -> two-qubit infidelity, overriding error_2q
+    qubit_overrides: dict = field(default_factory=dict)  # q -> {error_1q, readout, t1, t2}, overriding the chip's
+    crosstalk: dict = field(default_factory=dict)        # {"spectator_error": r, "zz_hz": zeta}
 
     def __post_init__(self):
         if self.family not in FAMILIES:
@@ -89,6 +91,44 @@ class Device:
                 raise ValueError("coupler errors must be in [0, 1)")
             canonical[key] = float(error)
         object.__setattr__(self, "coupler_errors", canonical)
+        overrides = {}
+        for q, values in (self.qubit_overrides or {}).items():
+            q = int(q)
+            if not 0 <= q < self.topology.n_qubits:
+                raise ValueError(f"qubit_overrides names qubit {q}, which the chip does not have")
+            unknown = set(values) - {"error_1q", "readout", "t1", "t2"}
+            if unknown:
+                raise ValueError(f"qubit overrides take error_1q, readout, t1 and t2, not {sorted(unknown)}")
+            clean = {}
+            for key, value in values.items():
+                if value is None:
+                    continue
+                if key == "readout":
+                    if len(value) != 2 or not all(0 <= p < 0.5 for p in value):
+                        raise ValueError("a qubit's readout must be (p01, p10), each in [0, 0.5)")
+                    clean[key] = tuple(float(p) for p in value)
+                elif key == "error_1q":
+                    if not (math.isfinite(value) and 0 <= value < 1):
+                        raise ValueError("a qubit's error_1q must be in [0, 1)")
+                    clean[key] = float(value)
+                else:
+                    if not (math.isfinite(value) and value > 0):
+                        raise ValueError(f"a qubit's {key} must be positive")
+                    clean[key] = float(value)
+            if clean:
+                overrides[q] = clean
+        object.__setattr__(self, "qubit_overrides", overrides)
+        crosstalk = dict(self.crosstalk or {})
+        unknown = set(crosstalk) - {"spectator_error", "zz_hz"}
+        if unknown:
+            raise ValueError(f"crosstalk takes spectator_error and zz_hz, not {sorted(unknown)}")
+        if not 0 <= crosstalk.get("spectator_error", 0.) < 1 or not math.isfinite(crosstalk.get("zz_hz", 0.)):
+            raise ValueError("crosstalk spectator_error must be in [0, 1) and zz_hz finite")
+        object.__setattr__(self, "crosstalk", {k: float(v) for k, v in crosstalk.items() if v})
+
+    def qubit(self, q, key):
+        """A qubit's error_1q, readout, t1 or t2: its own value, else the chip's."""
+        return self.qubit_overrides.get(q, {}).get(key, getattr(self, key))
 
     def coupler_error(self, a, b):
         """Two-qubit infidelity of the coupler (a, b): its own value, else error_2q."""
@@ -135,7 +175,9 @@ class Device:
                  "mean_degree": round(sum(degrees) / max(1, len(degrees)), 3),
                  "native_gates": self.native_gates, "error_1q": self.error_1q, "error_2q": self.error_2q,
                  "readout": self.readout, "t1": self.t1, "t2": self.t2,
-                 "time_1q": self.time_1q, "time_2q": self.time_2q, "parameters": self.parameters}
+                 "time_1q": self.time_1q, "time_2q": self.time_2q, "parameters": self.parameters,
+                 "qubits_with_own_noise": len(self.qubit_overrides), "couplers_with_own_error": len(self.coupler_errors),
+                 "crosstalk": self.crosstalk}
         if self.n_qubits <= 2000:
             far = self.distances(0)
             facts["connected"] = min(far) >= 0
@@ -149,8 +191,9 @@ class Device:
     def noise_model(self, scale=1.0):
         """Uniform noise for simulating circuits on this chip.
 
-        Per-coupler errors apply when a circuit is compiled onto the chip;
-        this uniform model uses error_2q. Gate infidelity r on k qubits becomes a depolarizing probability
+        Per-coupler and per-qubit errors and crosstalk apply when a circuit
+        is compiled onto the chip; this uniform model uses the chip-wide
+        values, except readout, which follows each qubit. Gate infidelity r on k qubits becomes a depolarizing probability
         p = r (d + 1) / d with d = 2^k, which has the same average fidelity;
         readout is applied to every wire. `scale` multiplies every error.
         Idle decoherence from t1 and t2 needs a schedule and is not included.
@@ -162,12 +205,23 @@ class Device:
         from .interop import Noise
         p1 = min(0.75, (self.error_1q or 0.) * scale * 3 / 2)
         p2 = min(0.9375, (self.error_2q or 0.) * scale * 5 / 4)
-        readout = tuple(min(0.499, p * scale) for p in self.readout) if self.readout else None
+        readout = self.readout_map(scale)
         return Noise(depolarizing_1q=p1, depolarizing_2q=p2, readout=readout)
+
+    def readout_map(self, scale=1.0):
+        """Readout errors scaled by `scale`: one pair for every wire, or a mapping of wire to pair
+        when qubits differ; None without readout error."""
+        def scaled(pair):
+            return tuple(min(0.499, p * scale) for p in pair) if pair else None
+        if not any("readout" in v for v in self.qubit_overrides.values()):
+            return scaled(self.readout)
+        pairs = {q: scaled(self.qubit(q, "readout")) for q in range(self.n_qubits)}
+        return {q: p for q, p in pairs.items() if p}
 
     def with_noise(self, **changes):
         """A copy with some noise or timing fields replaced."""
-        allowed = {"error_1q", "error_2q", "readout", "t1", "t2", "time_1q", "time_2q", "coupler_errors"}
+        allowed = {"error_1q", "error_2q", "readout", "t1", "t2", "time_1q", "time_2q", "coupler_errors",
+                   "qubit_overrides", "crosstalk"}
         unknown = set(changes) - allowed
         if unknown:
             raise ValueError(f"unknown noise fields {sorted(unknown)}; use {sorted(allowed)}")
@@ -181,6 +235,11 @@ class Device:
         return replace(self, error_1q=scale(self.error_1q), error_2q=scale(self.error_2q),
                        readout=tuple(min(0.499, p * factor) for p in self.readout) if self.readout else None,
                        coupler_errors={k: scale(v) for k, v in self.coupler_errors.items()},
+                       qubit_overrides={q: {k: (scale(v) if k == "error_1q" else
+                                                tuple(min(0.499, p * factor) for p in v) if k == "readout" else v)
+                                            for k, v in values.items()} for q, values in self.qubit_overrides.items()},
+                       crosstalk={"spectator_error": scale(self.crosstalk.get("spectator_error", 0.)) or 0.,
+                                  "zz_hz": self.crosstalk.get("zz_hz", 0.) * factor},
                        name=f"{self.name} (noise x{factor:g})")
 
     def uncoupled_pairs(self, circuit):
@@ -206,14 +265,18 @@ class Device:
                 "time_1q": self.time_1q, "time_2q": self.time_2q, "description": self.description,
                 "source": self.source, "parameters": self.parameters,
                 **({"coupler_errors": [[a, b, e] for (a, b), e in sorted(self.coupler_errors.items())]}
-                   if self.coupler_errors else {})}
+                   if self.coupler_errors else {}),
+                **({"qubit_overrides": [{"qubit": q, **{k: list(v) if k == "readout" else v for k, v in values.items()}}
+                                        for q, values in sorted(self.qubit_overrides.items())]}
+                   if self.qubit_overrides else {}),
+                **({"crosstalk": dict(self.crosstalk)} if self.crosstalk else {})}
 
     @classmethod
     def from_dict(cls, data):
         """A Device from to_dict() output or a hand-written chip description."""
         known = {"schema", "name", "family", "n_qubits", "edges", "native_gates", "error_1q", "error_2q",
                  "readout", "t1", "t2", "time_1q", "time_2q", "description", "source", "parameters",
-                 "coupler_errors"}
+                 "coupler_errors", "qubit_overrides", "crosstalk"}
         unknown = set(data) - known
         if unknown:
             raise ValueError(f"unknown device fields {sorted(unknown)}")
@@ -230,7 +293,10 @@ class Device:
                    t1=data.get("t1"), t2=data.get("t2"), time_1q=data.get("time_1q"), time_2q=data.get("time_2q"),
                    description=data.get("description", ""), source=data.get("source", ""),
                    parameters=data.get("parameters", {}),
-                   coupler_errors={(int(a), int(b)): float(e) for a, b, e in data.get("coupler_errors", [])})
+                   coupler_errors={(int(a), int(b)): float(e) for a, b, e in data.get("coupler_errors", [])},
+                   qubit_overrides={int(item["qubit"]): {k: v for k, v in item.items() if k != "qubit"}
+                                    for item in data.get("qubit_overrides", [])},
+                   crosstalk=data.get("crosstalk", {}))
 
     def to_json(self, path=None):
         text = json.dumps(self.to_dict(), indent=1)
@@ -399,4 +465,6 @@ def get(name, **parameters):
     unknown = set(parameters) - set(defaults)
     if unknown:
         raise ValueError(f"{name} takes parameters {sorted(defaults)}, not {sorted(unknown)}")
-    return builder(**parameters)
+    chip = builder(**parameters)
+    # Record the generator, so design.expand can grow the chip with the same architecture.
+    return replace(chip, parameters={**chip.parameters, "catalog": name, "catalog_parameters": {**defaults, **parameters}})

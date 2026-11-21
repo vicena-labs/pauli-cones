@@ -79,7 +79,7 @@ Observables keep the circuit's qubit numbers, and `noise_scale` multiplies every
 - remove defective qubits and edit couplers;
 - derive gate errors from T1, T2 and gate durations (the exact coherence limit, plus control error).
 
-`compare` ranks designs against catalogue chips on benchmark circuits. Both are also commands (`pauli-cones design`, `pauli-cones compare`), and a designed chip is an ordinary device file.
+It can also give every qubit its own errors and coherence times, add crosstalk (spectator errors and ZZ phases around two-qubit gates), and grow any chip to more qubits with the same architecture. A sweep can grow the chip for each size with `--device fit:NAME`. `compare` ranks designs against catalogue chips on benchmark circuits. Both are also commands (`pauli-cones design`, `pauli-cones compare`), and a designed chip is an ordinary device file.
 
 Sweeps put it together: compile and solve over chips, noise scales and sizes, with the ideal value and routing cost beside every point. The solver is chosen automatically and every row says whether it is exact.
 

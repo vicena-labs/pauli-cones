@@ -102,12 +102,16 @@ def sweep(circuit, observable=None, *, devices=None, noise_scales=(1.0,), sizes=
     pauli_cones.circuits (with `sizes`), or a function n -> circuit.
     observable is a string, or a function n -> string; a family supplies its
     own when it is None. devices are Device objects, catalogue names, or
-    "name:k=v,k=v" strings; None evaluates only the ideal circuit.
+    "name:k=v,k=v" strings; None evaluates only the ideal circuit. A device
+    written "fit:name..." (or "fit:" followed by a .json path) grows to fit
+    each size with the same architecture (pauli_cones.design.expand).
     """
     from . import circuits, devices as catalogue
     from .compiler import compile_circuit
     from .interop import convert, parse_observable
-    chips = [_device(d, catalogue) for d in (devices or [])]
+    from .design import expand
+    chips = [(True, _device(d[4:], catalogue)) if isinstance(d, str) and d.startswith("fit:")
+             else (False, _device(d, catalogue)) for d in (devices or [])]
     rows = []
     for n in (sizes or [None]):
         source, obs = _instance(circuit, observable, n, circuits, family_parameters or {})
@@ -118,7 +122,8 @@ def sweep(circuit, observable=None, *, devices=None, noise_scales=(1.0,), sizes=
         rows.append({"size": n, "device": "ideal", "noise_scale": 0.0, "value": ideal["value"],
                      "ideal": ideal["value"], "deviation": 0.0, "method": ideal["method"], "exact": ideal["exact"],
                      "seconds": time.perf_counter() - start})
-        for chip in chips:
+        for fit, base in chips:
+            chip = expand(base, ideal_conv.circuit.n_qubits) if fit else base
             for scale in noise_scales:
                 row = {"size": n, "device": chip.name, "noise_scale": scale, "ideal": ideal["value"]}
                 start = time.perf_counter()
@@ -157,6 +162,8 @@ def _instance(circuit, observable, n, circuits, parameters):
 
 
 def _device(spec, catalogue):
+    if isinstance(spec, str) and spec.endswith(".json"):
+        return catalogue.get(spec)
     if isinstance(spec, dict):
         return catalogue.Device.from_dict(spec)
     if not isinstance(spec, str):

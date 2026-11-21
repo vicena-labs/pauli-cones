@@ -31,6 +31,7 @@ Routing is heuristic: the SWAP count is not minimal.
 """
 from __future__ import annotations
 
+import math
 from collections import Counter, deque
 from dataclasses import dataclass, field
 
@@ -91,9 +92,9 @@ def compile_circuit(circuit, device, *, layout="greedy", router="greedy", noise=
     else:
         raise ValueError('router must be "greedy" or "sabre"')
     gate_noise = device.noise_model(noise_scale) if noise else None
-    scheduled, facts = _schedule(routed_ops, device, gate_noise, idle_noise and noise and noise_scale > 0,
+    scheduled, facts = _schedule(routed_ops, device, gate_noise, bool(idle_noise and noise and noise_scale > 0),
                                  noise_scale if noise else 0.0)
-    readout = gate_noise.readout if gate_noise else None
+    readout = device.readout_map(noise_scale) if noise else None  # per qubit where the chip says so
     converted = _emit(device.n_qubits, scheduled, params, None, max_terms)  # readout acts on observables
     report = {"device": device.name, "router": router, "layout": layout_method,
               "logical_qubits": n, "swaps": swaps, **facts, "noise": bool(noise), "idle_noise": bool(idle_noise and noise),
@@ -376,18 +377,34 @@ def _sabre(circuit, device, layout, values):
 
 # ---------------------------------------------------------------- schedule and noise
 def _schedule(ops, device, noise, idle, scale=1.0):
-    """Insert gate errors and idle relaxation; return ops and timing facts.
+    """Insert gate errors, crosstalk and idle relaxation; return ops and timing facts.
 
-    `scale` multiplies decoherence rates as it does error rates: T1 and T2 are divided by it.
+    Errors follow each qubit's and coupler's own values where the chip gives
+    them. After every two-qubit gate, each started neighbour of its qubits (a
+    spectator) takes the chip's crosstalk: a depolarizing spectator error,
+    and a conditional phase RZZ(2 pi zeta t_2q) with the gate qubit it neighbours
+    for an always-on ZZ coupling zeta (during two-qubit gates only).
+    `scale` multiplies every error, ZZ rate and decoherence rate (T1 and T2 are divided by it).
     """
-    t1, t2 = device.t1, device.t2
-    if idle and t1 is None and t2 is None:
-        idle = False
-    if idle:
-        t1 = t1 if t1 is not None else 1e6 * t2   # ions: effectively no T1 decay
-        t2 = min(t2 if t2 is not None else 2 * t1, 2 * t1)
-        t1, t2 = t1 / scale, t2 / scale
+    if noise is None:
+        scale = 0.0
     durations = {1: device.time_1q or 0.0, 2: device.time_2q or 0.0}
+    adjacency = device._adjacency()
+    spectator = device.crosstalk.get("spectator_error", 0.) * scale
+    zz_angle = 2 * math.pi * device.crosstalk.get("zz_hz", 0.) * scale * durations[2]
+    coherence = {}
+
+    def relax_times(w):
+        if w not in coherence:
+            t1, t2 = device.qubit(w, "t1"), device.qubit(w, "t2")
+            if t1 is None and t2 is None:
+                coherence[w] = None
+            else:
+                t1 = t1 if t1 is not None else 1e6 * t2   # ions: effectively no T1 decay
+                t2 = min(t2 if t2 is not None else 2 * t1, 2 * t1)
+                coherence[w] = (t1 / scale, t2 / scale)
+        return coherence[w]
+
     busy, started, level = {}, set(), {}
     out, one, two = [], 0, 0
     for prim, wires, base, index, sign in ops:
@@ -397,8 +414,8 @@ def _schedule(ops, device, noise, idle, scale=1.0):
         if idle:
             for w in wires:
                 gap = start - busy.get(w, 0.0)
-                if w in started and gap > 0:
-                    out.append(("RELAX", [w], (gap, t1, t2), -1, 1))
+                if w in started and gap > 0 and relax_times(w):
+                    out.append(("RELAX", [w], (gap, *relax_times(w)), -1, 1))
         out.append((prim, wires, base, index, sign))
         if not virtual:
             depth = max(level.get(w, 0) for w in wires) + 1
@@ -407,20 +424,31 @@ def _schedule(ops, device, noise, idle, scale=1.0):
         if len(wires) == 2:
             two += 1
             # The coupler's own infidelity when the chip gives one, as a depolarizing probability.
-            error = device.coupler_error(*wires) if noise is not None else 0.
+            error = device.coupler_error(*wires) if scale else 0.
             if error:
                 out.append(("DEPOL", wires, min(0.9375, error * scale * 5 / 4), -1, 1))
+            if spectator or zz_angle:
+                for w in wires:
+                    for s in adjacency[w]:
+                        if s in wires or s not in started:
+                            continue
+                        if zz_angle:  # coherent and error-free: not counted as gates
+                            for z_prim, z_wires, z_angle in _DECOMPOSE["rzz"]([w, s], [zz_angle]):
+                                out.append((z_prim, list(z_wires), z_angle, -1, 1))
+                        if spectator:
+                            out.append(("DEPOL", [s], min(0.75, spectator * 3 / 2), -1, 1))
         elif not virtual:
             one += 1
-            if noise and noise.depolarizing_1q:
-                out.append(("DEPOL", wires, noise.depolarizing_1q, -1, 1))
+            error = device.qubit(wires[0], "error_1q") if scale else 0.
+            if error:
+                out.append(("DEPOL", wires, min(0.75, error * scale * 3 / 2), -1, 1))
         for w in wires:
             busy[w] = start + duration
             started.add(w)
     end = max(busy.values(), default=0.0)
     if idle:
         for w in sorted(started):
-            if end - busy[w] > 0:
-                out.append(("RELAX", [w], (end - busy[w], t1, t2), -1, 1))
+            if end - busy[w] > 0 and relax_times(w):
+                out.append(("RELAX", [w], (end - busy[w], *relax_times(w)), -1, 1))
     return out, {"one_qubit_gates": one, "two_qubit_gates": two, "depth": max(level.values(), default=0),
                  "duration_s": end}

@@ -175,3 +175,112 @@ def compare(chips, *, family="qaoa-ring", sizes=(8, 12), noise_scale=1.0, router
 def _rebuild(chip, n, edges, errors, name):
     return replace(chip, name=name, topology=Topology(n, tuple(edges)), coupler_errors=errors,
                    parameters={**chip.parameters, "designed": True})
+
+
+# ---------------------------------------------------------------- qubit spread and crosstalk
+def vary_qubits(chip, spread=0.2, *, seed=0):
+    """A copy whose qubits differ, as on a real chip: each qubit's error_1q, readout,
+    T1 and T2 are the chip's values times exp(N(0, spread)), with T2 kept below 2 T1."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    overrides = {}
+    for q in range(chip.n_qubits):
+        factor = lambda: float(np.exp(rng.normal(0, spread)))  # noqa: E731
+        values = {}
+        if chip.error_1q:
+            values["error_1q"] = min(0.999, chip.error_1q * factor())
+        if chip.readout:
+            values["readout"] = tuple(min(0.499, p * factor()) for p in chip.readout)
+        if chip.t1:
+            values["t1"] = chip.t1 * factor()
+        if chip.t2:
+            t2 = chip.t2 * factor()
+            values["t2"] = min(t2, 2 * values.get("t1", chip.t1 or math.inf))
+        overrides[q] = values
+    return replace(chip, qubit_overrides=overrides, parameters={**chip.parameters, "qubit_spread": spread,
+                                                               "qubit_spread_seed": seed})
+
+
+def with_crosstalk(chip, *, spectator_error=0.0, zz_hz=0.0):
+    """A copy with crosstalk: a depolarizing `spectator_error` on each neighbour of a
+    two-qubit gate, and an always-on ZZ rate `zz_hz` acting on those spectator pairs
+    during two-qubit gates (a conditional phase of 2 pi zz_hz t)."""
+    return replace(chip, crosstalk={"spectator_error": spectator_error, "zz_hz": zz_hz})
+
+
+# ---------------------------------------------------------------- growing chips
+def expand(chip, n_qubits):
+    """The same architecture with at least `n_qubits` qubits.
+
+    Catalogue chips are regenerated larger (heavy-hex keeps rows odd and rows
+    about half the row length, grids keep their aspect ratio, ions and lines
+    take the size directly, annealer graphs grow their size parameter); modular
+    chips get more modules; other chips are tiled in a line. Chip-wide noise,
+    timing and crosstalk carry over; per-qubit and per-coupler values, which
+    name particular qubits, carry over only for added modules of a modular chip.
+    """
+    if n_qubits <= chip.n_qubits:
+        return chip
+    p = chip.parameters
+    if "catalog" in p:
+        grown = _grow_catalogue(p["catalog"], p["catalog_parameters"], n_qubits)
+        out = replace(grown, error_1q=chip.error_1q, error_2q=chip.error_2q, readout=chip.readout, t1=chip.t1,
+                      t2=chip.t2, time_1q=chip.time_1q, time_2q=chip.time_2q, crosstalk=dict(chip.crosstalk),
+                      native_gates=chip.native_gates, source=chip.source)
+    elif "module" in p and "modules" in p:
+        size = chip.n_qubits // p["modules"]
+        module = replace(chip, name=p["module"], topology=Topology(size, tuple(
+            e for e in chip.edges if e[0] < size and e[1] < size)), coupler_errors={
+            k: v for k, v in chip.coupler_errors.items() if k[0] < size and k[1] < size},
+            qubit_overrides={q: v for q, v in chip.qubit_overrides.items() if q < size}, parameters={})
+        out = modular(module, -(-n_qubits // size), links=p["links"], links_per_pair=p["links_per_pair"],
+                      link_error=p["link_error"])
+    else:
+        out = modular(chip, -(-n_qubits // chip.n_qubits), links="line", name=f"{chip.name}-tiled")
+    return replace(out, parameters={**out.parameters, "expanded_from": chip.name})
+
+
+def series(chip, sizes):
+    """Chips of the same architecture for each size in `sizes` (each at least that many qubits)."""
+    return [expand(chip, n) for n in sizes]
+
+
+def _grow_catalogue(name, parameters, n):
+    from . import devices
+    if name in ("heavy-hex-127", "heavy-hex"):
+        k = 1
+        while True:
+            row_length = 4 * k + 3                 # heavy-hex needs row_length = 4k + 3
+            rows = (row_length + 1) // 2           # about half the row length, as on the 127-qubit chip
+            rows = max(3, rows if rows % 2 else rows - 1)  # and an odd number of rows
+            chip = devices.get("heavy-hex", rows=rows, row_length=row_length)
+            if chip.n_qubits >= n:
+                return chip
+            k += 1
+    if name in ("square-grid", "neutral-atom-grid"):
+        r, c = parameters["rows"], parameters["columns"]
+        f = math.sqrt(n / (r * c))
+        rows, cols = max(r, math.ceil(r * f)), max(c, math.ceil(c * f))
+        while rows * cols < n:
+            cols += 1
+        extra = {"radius": parameters["radius"]} if name == "neutral-atom-grid" else {}
+        return devices.get(name, rows=rows, columns=cols, **extra)
+    if name == "line":
+        return devices.get("line", n=n)
+    if name == "all-to-all-ions":
+        return devices.get("all-to-all-ions", n=n)
+    if name == "chimera":
+        t = parameters["t"]
+        m = max(parameters["m"], math.ceil(math.sqrt(n / (2 * t))))
+        return devices.get("chimera", m=m, t=t)
+    if name == "pegasus":
+        m = parameters["m"]
+        while devices.get("pegasus", m=m).n_qubits < n:
+            m += 1
+        return devices.get("pegasus", m=m)
+    if name == "zephyr":
+        m, t = parameters["m"], parameters["t"]
+        while 4 * t * m * (2 * m + 1) < n:
+            m += 1
+        return devices.get("zephyr", m=m, t=t)
+    raise ValueError(f"cannot grow {name}")

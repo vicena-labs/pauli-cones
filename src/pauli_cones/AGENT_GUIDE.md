@@ -88,6 +88,13 @@ Design options:
 - `--add-couplers` and `--remove-couplers` edit connectivity.
 - Giving all of `--t1`, `--t2`, `--time-1q` and `--time-2q` derives gate errors from the exact coherence limit, plus `--control-error-1q/2q` for errors coherence does not capture.
 
+More options:
+- `--qubit-spread 0.2` gives each qubit its own one-qubit error, readout, T1 and T2, spread log-normally around the chip values as on a real chip.
+- `--spectator-error` and `--zz-hz` add crosstalk. Neighbours of every two-qubit gate take a depolarizing error, and pick up a ZZ conditional phase of 2π·ζ·t during the gate.
+- `--expand-to N` grows a chip to at least N qubits with the same architecture: heavy-hex stays heavy-hex, grids keep their aspect ratio, and modular chips add modules.
+
+In a sweep, `--device fit:heavy-hex-127` grows the chip to fit each size.
+
 The result is an ordinary device file: use it anywhere a device goes (`--device modular.json`). `compare` ranks chips by mean deviation from the ideal value on a benchmark family, with mean SWAPs, two-qubit gates and duration. In Python, `pauli_cones.design` has the same operations.
 
 ## Recipe

@@ -90,7 +90,8 @@ def main(argv=None):
     sw.add_argument('--family-param', action='append', default=[], help='Family parameter, e.g. p=2')
     sw.add_argument('--observable', help='Observable; a family supplies its own when omitted')
     sw.add_argument('--device', action='append', default=[],
-                    help='Chip, repeatable: catalogue name, "name:k=v,k=v", or a .json file')
+                    help='Chip, repeatable: catalogue name, "name:k=v,k=v", or a .json file; prefix "fit:" to grow '
+                         'it to fit each size with the same architecture')
     sw.add_argument('--noise-scales', default='1', help='Comma-separated noise multipliers, e.g. 0,0.5,1,2')
     sw.add_argument('--router', choices=('greedy', 'sabre'), default='greedy')
     sw.add_argument('--layout', choices=('greedy', 'trivial'), default='greedy')
@@ -113,6 +114,11 @@ def main(argv=None):
     ds.add_argument('--control-error-1q', type=float, default=0.)
     ds.add_argument('--control-error-2q', type=float, default=0.)
     ds.add_argument('--readout', help='"p01,p10"')
+    ds.add_argument('--qubit-spread', type=float, help='Vary each qubit\'s errors and T1/T2 by this log-normal spread')
+    ds.add_argument('--seed', type=int, default=0, help='Seed for --qubit-spread')
+    ds.add_argument('--spectator-error', type=float, help='Crosstalk: depolarizing error on neighbours of 2-qubit gates')
+    ds.add_argument('--zz-hz', type=float, help='Crosstalk: always-on ZZ rate in Hz on spectator pairs during 2-qubit gates')
+    ds.add_argument('--expand-to', type=int, help='Grow the chip to at least this many qubits, same architecture')
     ds.add_argument('--out', help='Write the JSON description to this file as well as printing a summary')
     cp = sub.add_parser('compare', help='Rank chips on a benchmark family: deviation, SWAPs, gates, duration')
     cp.add_argument('chips', nargs='+', help='Catalogue names, "name:k=v,k=v" or device .json files')
@@ -213,8 +219,10 @@ def _sweep(args):
             'layout': args.layout, 'idle_noise': not args.no_idle_noise, 'observable': args.observable}
     devices_spec = []
     for d in args.device:
-        if d.endswith('.json'):
+        if d.endswith('.json') and not d.startswith('fit:'):
             devices_spec.append(json.loads(Path(d).read_text()))
+        elif d.endswith('.json'):
+            devices_spec.append('fit:' + str(Path(d[4:]).resolve()))
         else:
             devices_spec.append(d)
     spec['devices'] = devices_spec
@@ -265,6 +273,8 @@ def _design(args):
         if args.modules:
             chip = design.modular(chip, args.modules, links=args.links, links_per_pair=args.links_per_pair,
                                   link_error=args.link_error)
+        if args.expand_to:
+            chip = design.expand(chip, args.expand_to)
         if args.remove_couplers:
             chip = design.remove_couplers(chip, _pairs(args.remove_couplers))
         if args.add_couplers:
@@ -280,6 +290,10 @@ def _design(args):
                                        readout=[float(x) for x in args.readout.split(',')] if args.readout else None)
         elif args.readout:
             chip = chip.with_noise(readout=tuple(float(x) for x in args.readout.split(',')))
+        if args.spectator_error is not None or args.zz_hz is not None:
+            chip = design.with_crosstalk(chip, spectator_error=args.spectator_error or 0., zz_hz=args.zz_hz or 0.)
+        if args.qubit_spread:
+            chip = design.vary_qubits(chip, args.qubit_spread, seed=args.seed)
         if args.name:
             from dataclasses import replace
             chip = replace(chip, name=args.name)
