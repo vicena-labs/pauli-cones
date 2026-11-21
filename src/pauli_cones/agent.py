@@ -41,6 +41,8 @@ def capabilities():
                    "apply a chip's noise and check its connectivity with --device on run and plan; "
                    "route onto it and simulate gate errors, idle T1/T2 and readout with --compile, "
                    "or report SWAPs, depth and duration with `pauli-cones compile`",
+        "design": "`pauli-cones design` builds chips (modules with link errors, defects, couplers, errors from "
+                  "T1/T2 and gate times) as device files; `pauli-cones compare` ranks chips on a benchmark family",
         "sweeps": "`pauli-cones sweep` compiles and solves over chips, noise scales and sizes, with built-in "
                   "families ghz, hardware-efficient, qaoa-ring and ising-trotter; the solver is chosen per point "
                   "(exact native, exact dense, then truncated with a convergence check)",

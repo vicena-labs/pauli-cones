@@ -61,6 +61,7 @@ class Device:
     description: str = ""
     source: str = ""
     parameters: dict = field(default_factory=dict)
+    coupler_errors: dict = field(default_factory=dict)  # (a, b) -> two-qubit infidelity, overriding error_2q
 
     def __post_init__(self):
         if self.family not in FAMILIES:
@@ -79,6 +80,19 @@ class Device:
                 raise ValueError(f"{key} must be positive or None")
         if not isinstance(self.native_gates, dict) or set(self.native_gates) - {"one_qubit", "two_qubit"}:
             raise ValueError('native_gates must be {"one_qubit": [...], "two_qubit": [...]}')
+        canonical, edges = {}, set(self.topology.edges)
+        for pair, error in (self.coupler_errors or {}).items():
+            key = tuple(sorted(int(q) for q in pair))
+            if key not in edges:
+                raise ValueError(f"coupler_errors names {key}, which is not a coupler")
+            if not (math.isfinite(error) and 0 <= error < 1):
+                raise ValueError("coupler errors must be in [0, 1)")
+            canonical[key] = float(error)
+        object.__setattr__(self, "coupler_errors", canonical)
+
+    def coupler_error(self, a, b):
+        """Two-qubit infidelity of the coupler (a, b): its own value, else error_2q."""
+        return self.coupler_errors.get(tuple(sorted((a, b))), self.error_2q)
 
     @property
     def n_qubits(self):
@@ -135,7 +149,8 @@ class Device:
     def noise_model(self, scale=1.0):
         """Uniform noise for simulating circuits on this chip.
 
-        Gate infidelity r on k qubits becomes a depolarizing probability
+        Per-coupler errors apply when a circuit is compiled onto the chip;
+        this uniform model uses error_2q. Gate infidelity r on k qubits becomes a depolarizing probability
         p = r (d + 1) / d with d = 2^k, which has the same average fidelity;
         readout is applied to every wire. `scale` multiplies every error.
         Idle decoherence from t1 and t2 needs a schedule and is not included.
@@ -152,7 +167,7 @@ class Device:
 
     def with_noise(self, **changes):
         """A copy with some noise or timing fields replaced."""
-        allowed = {"error_1q", "error_2q", "readout", "t1", "t2", "time_1q", "time_2q"}
+        allowed = {"error_1q", "error_2q", "readout", "t1", "t2", "time_1q", "time_2q", "coupler_errors"}
         unknown = set(changes) - allowed
         if unknown:
             raise ValueError(f"unknown noise fields {sorted(unknown)}; use {sorted(allowed)}")
@@ -165,6 +180,7 @@ class Device:
         scale = lambda x: None if x is None else min(0.999, x * factor)  # noqa: E731
         return replace(self, error_1q=scale(self.error_1q), error_2q=scale(self.error_2q),
                        readout=tuple(min(0.499, p * factor) for p in self.readout) if self.readout else None,
+                       coupler_errors={k: scale(v) for k, v in self.coupler_errors.items()},
                        name=f"{self.name} (noise x{factor:g})")
 
     def uncoupled_pairs(self, circuit):
@@ -188,13 +204,16 @@ class Device:
                 "native_gates": self.native_gates, "error_1q": self.error_1q, "error_2q": self.error_2q,
                 "readout": list(self.readout) if self.readout else None, "t1": self.t1, "t2": self.t2,
                 "time_1q": self.time_1q, "time_2q": self.time_2q, "description": self.description,
-                "source": self.source, "parameters": self.parameters}
+                "source": self.source, "parameters": self.parameters,
+                **({"coupler_errors": [[a, b, e] for (a, b), e in sorted(self.coupler_errors.items())]}
+                   if self.coupler_errors else {})}
 
     @classmethod
     def from_dict(cls, data):
         """A Device from to_dict() output or a hand-written chip description."""
         known = {"schema", "name", "family", "n_qubits", "edges", "native_gates", "error_1q", "error_2q",
-                 "readout", "t1", "t2", "time_1q", "time_2q", "description", "source", "parameters"}
+                 "readout", "t1", "t2", "time_1q", "time_2q", "description", "source", "parameters",
+                 "coupler_errors"}
         unknown = set(data) - known
         if unknown:
             raise ValueError(f"unknown device fields {sorted(unknown)}")
@@ -210,7 +229,8 @@ class Device:
                    readout=tuple(data["readout"]) if data.get("readout") else None,
                    t1=data.get("t1"), t2=data.get("t2"), time_1q=data.get("time_1q"), time_2q=data.get("time_2q"),
                    description=data.get("description", ""), source=data.get("source", ""),
-                   parameters=data.get("parameters", {}))
+                   parameters=data.get("parameters", {}),
+                   coupler_errors={(int(a), int(b)): float(e) for a, b, e in data.get("coupler_errors", [])})
 
     def to_json(self, path=None):
         text = json.dumps(self.to_dict(), indent=1)

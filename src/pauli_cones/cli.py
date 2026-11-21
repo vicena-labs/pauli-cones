@@ -6,6 +6,8 @@ error.type, error.message and error.hint with a concrete next step.
     pauli-cones devices | device NAME [--param k=v]   # chip catalogue and descriptions
     pauli-cones compile INPUT --device NAME           # route onto a chip: SWAPs, depth, duration, layouts
     pauli-cones sweep [INPUT | --family NAME --sizes 8,16] --device SPEC ... --noise-scales 0,1,2
+    pauli-cones design --base NAME [--modules 4 --links ring] [--t1 ... --t2 ...] --out chip.json
+    pauli-cones compare CHIP CHIP ... --family qaoa-ring --sizes 8,12   # rank chip designs
     pauli-cones plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
     pauli-cones run   INPUT [--observable EXPR] [options]
 
@@ -95,9 +97,39 @@ def main(argv=None):
     sw.add_argument('--no-idle-noise', action='store_true')
     sw.add_argument('--format', choices=('json', 'markdown', 'csv'), default='json')
     sw.add_argument('--timeout', type=float, default=600.0, help='Worker wall deadline in seconds')
+    ds = sub.add_parser('design', help='Build a chip description: base layout, modules, defects, couplers, physics')
+    ds.add_argument('--base', required=True, help='Catalogue name, "name:k=v,k=v", or a device .json file')
+    ds.add_argument('--name', help='Name of the new chip')
+    ds.add_argument('--modules', type=int, help='Tile this many copies of the base chip')
+    ds.add_argument('--links', choices=('line', 'ring', 'all'), default='ring', help='How modules connect')
+    ds.add_argument('--links-per-pair', type=int, default=1)
+    ds.add_argument('--link-error', type=float, help='Two-qubit infidelity of inter-module links')
+    ds.add_argument('--remove-qubits', help='Comma-separated defective qubits to remove (the rest are renumbered)')
+    ds.add_argument('--add-couplers', help='Comma-separated a-b pairs, e.g. 0-5,3-9')
+    ds.add_argument('--coupler-error', type=float, help='Infidelity of the added couplers')
+    ds.add_argument('--remove-couplers', help='Comma-separated a-b pairs')
+    for flag in ('--t1', '--t2', '--time-1q', '--time-2q'):
+        ds.add_argument(flag, type=float, help='Seconds; with all four, gate errors follow from coherence')
+    ds.add_argument('--control-error-1q', type=float, default=0.)
+    ds.add_argument('--control-error-2q', type=float, default=0.)
+    ds.add_argument('--readout', help='"p01,p10"')
+    ds.add_argument('--out', help='Write the JSON description to this file as well as printing a summary')
+    cp = sub.add_parser('compare', help='Rank chips on a benchmark family: deviation, SWAPs, gates, duration')
+    cp.add_argument('chips', nargs='+', help='Catalogue names, "name:k=v,k=v" or device .json files')
+    cp.add_argument('--family', default='qaoa-ring', help='ghz, hardware-efficient, qaoa-ring or ising-trotter')
+    cp.add_argument('--sizes', default='8,12')
+    cp.add_argument('--family-param', action='append', default=[])
+    cp.add_argument('--noise-scale', type=float, default=1.0)
+    cp.add_argument('--router', choices=('greedy', 'sabre'), default='greedy')
+    cp.add_argument('--format', choices=('json', 'markdown', 'csv'), default='json')
+    cp.add_argument('--timeout', type=float, default=600.0)
     args = p.parse_args(argv)
     if args.command == 'sweep':
         return _sweep(args)
+    if args.command == 'design':
+        return _design(args)
+    if args.command == 'compare':
+        return _compare(args)
     if args.command == 'guide':
         from .agent import guide
         # The guide is UTF-8 Markdown; write bytes so a console's legacy encoding cannot fail.
@@ -209,6 +241,84 @@ def _sweep(args):
     else:
         from .experiments import SweepResult
         table = SweepResult(output['rows'])
+        print(table.markdown() if args.format == 'markdown' else table.csv(), end='\n')
+    return 0
+
+
+def _chip(spec):
+    from . import devices
+    from .experiments import _device
+    if spec.endswith('.json'):
+        return devices.get(spec)
+    return _device(spec, devices)
+
+
+def _pairs(text):
+    return [tuple(int(x) for x in pair.split('-')) for pair in text.split(',') if pair]
+
+
+def _design(args):
+    """Build a chip from the command-line recipe and print its summary (and write its JSON)."""
+    from . import design
+    try:
+        chip = _chip(args.base)
+        if args.modules:
+            chip = design.modular(chip, args.modules, links=args.links, links_per_pair=args.links_per_pair,
+                                  link_error=args.link_error)
+        if args.remove_couplers:
+            chip = design.remove_couplers(chip, _pairs(args.remove_couplers))
+        if args.add_couplers:
+            chip = design.add_couplers(chip, _pairs(args.add_couplers), error=args.coupler_error)
+        if args.remove_qubits:
+            chip = design.remove_qubits(chip, [int(q) for q in args.remove_qubits.split(',')])
+        physics = [args.t1, args.t2, args.time_1q, args.time_2q]
+        if any(v is not None for v in physics):
+            if any(v is None for v in physics):
+                raise ValueError('physics needs all of --t1, --t2, --time-1q and --time-2q')
+            chip = design.with_physics(chip, t1=args.t1, t2=args.t2, time_1q=args.time_1q, time_2q=args.time_2q,
+                                       control_error_1q=args.control_error_1q, control_error_2q=args.control_error_2q,
+                                       readout=[float(x) for x in args.readout.split(',')] if args.readout else None)
+        elif args.readout:
+            chip = chip.with_noise(readout=tuple(float(x) for x in args.readout.split(',')))
+        if args.name:
+            from dataclasses import replace
+            chip = replace(chip, name=args.name)
+    except (KeyError, ValueError, OSError) as exc:
+        return emit_error(type(exc).__name__, str(exc).strip('"'),
+                          hint='See `pauli-cones design --help`; base chips come from `pauli-cones devices`.')
+    if args.out:
+        chip.to_json(args.out)
+    print(json.dumps({**chip.summary(), 'description': chip.description, 'source': chip.source,
+                      'coupler_errors': len(chip.coupler_errors), 'written_to': args.out}, indent=2))
+    return 0
+
+
+def _compare(args):
+    """Rank chips on a benchmark family in the worker and print the summary rows."""
+    chips = []
+    try:
+        for spec in args.chips:
+            chips.append(_chip(spec).to_dict())
+    except (KeyError, ValueError, OSError) as exc:
+        return emit_error(type(exc).__name__, str(exc).strip('"'), hint='Run `pauli-cones devices` for names.')
+    request = {'compare': {'chips': chips, 'family': args.family, 'sizes': [int(x) for x in args.sizes.split(',')],
+                           'noise_scale': args.noise_scale, 'router': args.router,
+                           'family_parameters': _params(args.family_param)}}
+    try:
+        child = subprocess.run([sys.executable, '-m', 'pauli_cones._worker', 'native', 'compare', '{}'],
+                               input=json.dumps(request).encode(), capture_output=True, timeout=args.timeout)
+    except subprocess.TimeoutExpired:
+        return emit_error('Timeout', 'comparison exceeded its deadline', 124,
+                          hint='Raise --timeout, or compare fewer chips or sizes.')
+    output = json.loads(child.stdout)
+    if not output.get('ok'):
+        print(json.dumps(output)); return child.returncode or 2
+    if args.format == 'json':
+        print(json.dumps(output, allow_nan=False, separators=(',', ':')))
+    else:
+        from .experiments import SweepResult
+        table = SweepResult(output['rows'])
+        table.COLUMNS = tuple(output['rows'][0]) if output['rows'] else ()
         print(table.markdown() if args.format == 'markdown' else table.csv(), end='\n')
     return 0
 

@@ -70,6 +70,26 @@ Built-in families, each with its own observable:
 
 The solver is chosen per point: exact sparse propagation, then exact dense for cones of at most 6 wires, then truncation at 1e-4 and 1e-5. A truncated row has `exact: false`, an `error_bound`, and the `convergence_change` between the two tolerances. A chip too small for a size gives a row with `error` instead of stopping the sweep. In Python: `from pauli_cones.experiments import sweep, solve`.
 
+## Designing chips
+
+Build a new chip from a catalogue layout, then compare it with existing chips:
+
+```bash
+pauli-cones design --base "heavy-hex:rows=3,row_length=7" --modules 4 --links ring --link-error 0.02 \
+    --remove-qubits 5,17 --t1 3e-4 --t2 2e-4 --time-1q 3e-8 --time-2q 2e-7 --control-error-2q 2e-3 \
+    --name modular-hh --out modular.json
+pauli-cones compare modular.json heavy-hex-127 "square-grid:rows=6,columns=6" --family qaoa-ring --sizes 8,12 \
+    --format markdown
+```
+
+Design options:
+- `--modules` tiles copies of the base and joins them in a line, ring or all-to-all. Links can have their own `--link-error`, usually worse than on-module couplers.
+- `--remove-qubits` removes defective qubits and renumbers the rest.
+- `--add-couplers` and `--remove-couplers` edit connectivity.
+- Giving all of `--t1`, `--t2`, `--time-1q` and `--time-2q` derives gate errors from the exact coherence limit, plus `--control-error-1q/2q` for errors coherence does not capture.
+
+The result is an ordinary device file: use it anywhere a device goes (`--device modular.json`). `compare` ranks chips by mean deviation from the ideal value on a benchmark family, with mean SWAPs, two-qubit gates and duration. In Python, `pauli_cones.design` has the same operations.
+
 ## Recipe
 
 1. **Plan.** `pauli-cones plan`: if `exact_guaranteed` is true, exact evaluation cannot exceed the term cap.

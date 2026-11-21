@@ -21,6 +21,17 @@ def main():
         backend=sys.argv[1]
         start=time.perf_counter()
         data=strict_json(sys.stdin.buffer.read(4*1024*1024+1).decode('utf-8'))
+        if isinstance(data, dict) and 'compare' in data:
+            from .design import compare
+            from .devices import Device
+            spec = data['compare']
+            result = compare([Device.from_dict(c) for c in spec['chips']], family=spec.get('family', 'qaoa-ring'),
+                             sizes=spec.get('sizes', [8, 12]), noise_scale=spec.get('noise_scale', 1.0),
+                             router=spec.get('router', 'greedy'), family_parameters=spec.get('family_parameters'))
+            print(json.dumps({'ok': True, 'schema_version': 1, 'rows': result.rows,
+                              'timings': {'worker_seconds': time.perf_counter() - start}},
+                             allow_nan=False, separators=(',', ':')), flush=True)
+            return 0
         if isinstance(data, dict) and 'sweep' in data:
             from .experiments import sweep
             spec = data['sweep']

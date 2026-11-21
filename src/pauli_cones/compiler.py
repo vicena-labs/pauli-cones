@@ -87,7 +87,7 @@ def compile_circuit(circuit, device, *, layout="greedy", router="greedy", noise=
         raise ValueError('router must be "greedy" or "sabre"')
     gate_noise = device.noise_model(noise_scale) if noise else None
     scheduled, facts = _schedule(routed_ops, device, gate_noise, idle_noise and noise and noise_scale > 0,
-                                 noise_scale)
+                                 noise_scale if noise else 0.0)
     readout = gate_noise.readout if gate_noise else None
     converted = _emit(device.n_qubits, scheduled, params, None, max_terms)  # readout acts on observables
     report = {"device": device.name, "router": router, "layout": layout if isinstance(layout, str) else "given",
@@ -289,8 +289,10 @@ def _schedule(ops, device, noise, idle, scale=1.0):
                 level[w] = depth
         if len(wires) == 2:
             two += 1
-            if noise and noise.depolarizing_2q:
-                out.append(("DEPOL", wires, noise.depolarizing_2q, -1, 1))
+            # The coupler's own infidelity when the chip gives one, as a depolarizing probability.
+            error = device.coupler_error(*wires) if noise is not None else 0.
+            if error:
+                out.append(("DEPOL", wires, min(0.9375, error * scale * 5 / 4), -1, 1))
         elif not virtual:
             one += 1
             if noise and noise.depolarizing_1q:

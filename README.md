@@ -74,6 +74,13 @@ With `--device`, the response reports any two-qubit operations on qubits the chi
 
 Observables keep the circuit's qubit numbers, and `noise_scale` multiplies every error and decoherence rate for noise sweeps. Without noise, a compiled circuit reproduces the original expectation exactly.
 
+`pauli_cones.design` builds new chips. It can:
+- tile modules joined by links with their own error rates;
+- remove defective qubits and edit couplers;
+- derive gate errors from T1, T2 and gate durations (the exact coherence limit, plus control error).
+
+`compare` ranks designs against catalogue chips on benchmark circuits. Both are also commands (`pauli-cones design`, `pauli-cones compare`), and a designed chip is an ordinary device file.
+
 Sweeps put it together: compile and solve over chips, noise scales and sizes, with the ideal value and routing cost beside every point. The solver is chosen automatically and every row says whether it is exact.
 
 ```bash
