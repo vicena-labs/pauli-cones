@@ -35,6 +35,14 @@
 #include <intrin.h>
 #endif
 
+// The ctypes wrapper loads these entry points by name; Windows exports only
+// what is marked, and other platforms may hide symbols by default.
+#ifdef _WIN32
+#define PAULI_API extern "C" __declspec(dllexport)
+#else
+#define PAULI_API extern "C" __attribute__((visibility("default")))
+#endif
+
 constexpr int K = 17;  // Scalar and at most 16 shared derivatives.
 constexpr double TRANSFER_ZERO = 5e-15;
 constexpr double COEFFICIENT_ZERO = 1e-16;
@@ -836,7 +844,7 @@ void evaluate_truncated(Graph& g, const CStage* full, int nparams, double* out, 
 }  // namespace
 
 // Original public C symbols and structures remain ABI compatible.
-extern "C" int run_pauli(
+PAULI_API int run_pauli(
     int nqubits, int nparams, int nstages, const CStage* stages,
     int nterms, const CTerm* observables, int initial_mode,
     uint64_t max_terms, double* out, CStats* stats
@@ -844,7 +852,7 @@ extern "C" int run_pauli(
     return run_single<true>(nqubits, nparams, nstages, stages, nstages, nullptr,
                             nterms, observables, initial_mode, max_terms, out, stats);
 }
-extern "C" int run_pauli_indexed(
+PAULI_API int run_pauli_indexed(
     int nqubits, int nparams, int nstages, const CStage* full_stages,
     int nfull, const int32_t* indices,
     int nterms, const CTerm* observables, int initial_mode,
@@ -857,7 +865,7 @@ extern "C" int run_pauli_indexed(
 
 // Optional value-only symbols use the original parameter count for validation,
 // but write exactly one output double and never read derivative matrices.
-extern "C" int run_pauli_value(
+PAULI_API int run_pauli_value(
     int nqubits, int nparams, int nstages, const CStage* stages,
     int nterms, const CTerm* observables, int initial_mode,
     uint64_t max_terms, double* out, CStats* stats
@@ -865,7 +873,7 @@ extern "C" int run_pauli_value(
     return run_single<false>(nqubits, nparams, nstages, stages, nstages, nullptr,
                              nterms, observables, initial_mode, max_terms, out, stats);
 }
-extern "C" int run_pauli_indexed_value(
+PAULI_API int run_pauli_indexed_value(
     int nqubits, int nparams, int nstages, const CStage* full_stages,
     int nfull, const int32_t* indices,
     int nterms, const CTerm* observables, int initial_mode,
@@ -882,7 +890,7 @@ extern "C" int run_pauli_indexed_value(
 // A group over the term cap does not stop the others, so one call reports
 // every such group in group_codes (optional, one code per group) and the
 // caller can split them all before retrying.
-extern "C" int run_pauli_batch(
+PAULI_API int run_pauli_batch(
     int nparams, const CStage* full_stages, int nfull, const double* lipschitz,
     int ngroups, const CGroup* groups, int initial_mode, uint64_t max_terms,
     double truncate_below, int32_t max_weight, int with_gradient, int nthreads,
@@ -932,7 +940,7 @@ extern "C" int run_pauli_batch(
 // apply to the total over groups, accumulated in group order. As in
 // run_pauli_batch, a group over the term cap does not stop the others, and
 // group_codes (optional) receives every group's code.
-extern "C" int pauli_graph_compile(
+PAULI_API int pauli_graph_compile(
     int nparams, const CStage* full_stages, int nfull, const CGraphSupport* support,
     int ngroups, const CGroup* groups, int initial_mode, uint64_t max_terms,
     uint64_t max_nodes, uint64_t max_edges, double truncate_below, int32_t max_weight,
@@ -1002,7 +1010,7 @@ extern "C" int pauli_graph_compile(
 // in group order, so the output does not depend on the thread count. For a
 // truncated graph, `bounds` (1 + nparams doubles, value first) receives the
 // rigorous error bounds of the value and, with gradients, of each derivative.
-extern "C" int pauli_graph_evaluate(
+PAULI_API int pauli_graph_evaluate(
     void* handle, int nparams, const CStage* full_stages, int nfull, int with_gradient,
     int nthreads, double* out, double* bounds
 ) {
@@ -1056,6 +1064,6 @@ extern "C" int pauli_graph_evaluate(
     return 0;
 }
 
-extern "C" void pauli_graph_free(void* handle) {
+PAULI_API void pauli_graph_free(void* handle) {
     delete static_cast<GraphSet*>(handle);
 }

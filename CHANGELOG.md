@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0rc2 (release candidate, not yet published) — faster native solver and graph, truncated mode, interop and agent-first CLI
+## 0.4.0rc3 (release candidate, not yet published) — faster native solver and graph, truncated mode, interop and agent-first CLI
 
 - Add an optional truncated mode, `prepare(..., truncation=Truncation(min_coefficient, max_weight))`, on the `native`, `graph` and `auto` backends. It discards terms whose coefficients fall below a fraction of the observable's l1 norm, or that act on more than `max_weight` open wires. Every evaluation returns a rigorous `error_bound` and `gradient_error_bound`; exact plans return `None`. Other backends refuse truncation.
 - Rewrite the native term store as a flat open-addressing table that a stage updates in place. Terms with identity on the stage's wires are not touched, terms the stage maps to themselves are rescaled in place, and only moved or branching terms are rehashed. Keys use one to four 64-bit words, chosen from each group's wire count.
@@ -14,6 +14,7 @@
 - Truncate graphs too. A truncated graph chooses its discarded terms at the angles bound during preparation, keeps each discarded term as a node no edge reads, and computes the error bound from those terms' coefficients at every evaluation's own angles, so the bound holds at any binding. Truncated gradients use forward tangents, which the gradient bound needs. `numerics['truncation']['discarded_terms_chosen']` says which policy applies. When the value bound exceeds `Truncation.reprepare_factor` (default 2) times its value where the graph was compiled, the graph compiles again at the current angles; a recompilation over budget keeps the current graph and stops retrying. Diagnostics report `graph_reprepared` and `reprepare_failed`.
 - Rebind rotation angles with vectorised NumPy writes into the native stage array instead of a Python loop over stages.
 - The original C symbols and structure layouts are unchanged.
+- Export the C entry points explicitly, so the extension loads on Windows, where unmarked functions are not exported.
 - Make the sparse coefficient cutoff relative to the observable's l1 norm in the native kernel and Python reference. Observables with weights of 1e-16 or less previously returned exactly 0 on `native` and `python` while `graph` and `dense` returned the correct value. `numerics` reports `coefficient_cutoff_relative_to`.
 - Enforce `max_cone_qubits` on registers of 256 wires or fewer; it was previously read only by the wide-register planner.
 

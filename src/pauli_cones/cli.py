@@ -65,7 +65,8 @@ def main(argv=None):
     args = p.parse_args(argv)
     if args.command == 'guide':
         from .agent import guide
-        print(guide()); return 0
+        # The guide is UTF-8 Markdown; write bytes so a console's legacy encoding cannot fail.
+        sys.stdout.buffer.write(guide().encode('utf-8') + b'\n'); sys.stdout.flush(); return 0
     if args.command in ('capabilities', 'schema'):
         from . import agent
         print(json.dumps(getattr(agent, args.command)(), indent=2)); return 0

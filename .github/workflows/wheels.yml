@@ -31,7 +31,8 @@ jobs:
           # cannot be tested there, so cibuildwheel skips its tests.
           CIBW_ARCHS_MACOS: "arm64 x86_64"
           CIBW_TEST_REQUIRES: "pytest"
-          CIBW_TEST_COMMAND: "pytest -q {project}/tests"
+          # From the project root: some tests import the repository's examples.
+          CIBW_TEST_COMMAND: "cd {project} && python -m pytest -q tests"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
