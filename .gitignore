@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.o
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+# Keep private audit, ownership and publication-approval records out of public Git.
+SOURCE_PROVENANCE.json
+RELEASE_APPROVAL.json
+RELEASE_READINESS.md
+SECURITY_AUDIT.md
+QUALIFICATION.json
+BUNDLE_SHA256.json
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+!*.env.example
+*.log
+.coverage
+coverage/

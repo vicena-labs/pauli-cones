@@ -1,0 +1,165 @@
+"""JSON-only command line for agents and scripts: every command prints one JSON
+document (except `guide`, which prints Markdown), and every failure carries
+error.type, error.message and error.hint with a concrete next step.
+
+    pauli-cones capabilities | schema | guide | example | doctor
+    pauli-cones plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
+    pauli-cones run   INPUT [--observable EXPR] [options]
+
+INPUT is a JSON request, an OpenQASM file (.qasm), or - for standard input.
+"""
+from __future__ import annotations
+import argparse
+import importlib.util
+import json
+import math
+import os
+from pathlib import Path
+import platform
+import re
+import subprocess
+import sys
+import time
+from . import __version__
+
+MAX_INPUT = 4 * 1024 * 1024
+
+
+def emit_error(kind, message, status=2, hint=None):
+    error = {'type': kind, 'message': message}
+    if hint:
+        error['hint'] = hint
+    print(json.dumps({'ok': False, 'error': error}))
+    return status
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog='pauli-cones', description='Noisy Pauli expectations and shared-parameter '
+                                'gradients. Every command prints JSON; start with `pauli-cones guide`.')
+    p.add_argument('--version', action='version', version=__version__)
+    sub = p.add_subparsers(dest='command', required=True)
+    sub.add_parser('guide', help='Print the usage guide for agents (Markdown)')
+    sub.add_parser('capabilities', help='Supported gates, noise, limits, backends and exit codes as JSON')
+    sub.add_parser('schema', help='JSON Schema of requests and the response fields')
+    sub.add_parser('example', help='Print a self-contained noisy two-qubit request')
+    sub.add_parser('doctor', help='Report installed backend availability without compiling')
+    for name, text in (('plan', 'Dry run: cone sizes, a rigorous term bound and recommended next commands'),
+                       ('run', 'Evaluate one request: values, gradients and diagnostics')):
+        cmd = sub.add_parser(name, help=text)
+        cmd.add_argument('input', nargs='?', default='-', help='JSON request, OpenQASM file, or - for stdin')
+        cmd.add_argument('--observable', help='For OpenQASM input: e.g. "0.5*Z0*Z1 - X3" or "0.5*IXZ"')
+        cmd.add_argument('--values', help='For OpenQASM 3 input parameters: JSON list of values, or of vectors')
+        cmd.add_argument('--noise-1q', type=float, default=0., help='OpenQASM input: depolarizing after 1-qubit gates')
+        cmd.add_argument('--noise-2q', type=float, default=0., help='OpenQASM input: depolarizing after 2-qubit gates')
+        cmd.add_argument('--readout', help='OpenQASM input: "p01,p10" readout error on every wire')
+        cmd.add_argument('--max-terms', type=int, help='Term cap per cone (OpenQASM input; default 50000)')
+        cmd.add_argument('--timeout', type=float, default=60.0, help='Worker wall deadline in seconds')
+        if name == 'run':
+            cmd.add_argument('--backend', choices=('native', 'python', 'graph', 'dense', 'auto'), default='native')
+            cmd.add_argument('--value-only', action='store_true', help='Skip gradients')
+            cmd.add_argument('--min-coefficient', type=float, default=None,
+                             help='Truncate terms below this fraction of the observable l1 norm')
+            cmd.add_argument('--max-weight', type=int, default=None,
+                             help='Truncate terms acting on more open wires than this')
+            cmd.add_argument('--threads', type=int, default=1, help='Threads for independent cone groups')
+    args = p.parse_args(argv)
+    if args.command == 'guide':
+        from .agent import guide
+        print(guide()); return 0
+    if args.command in ('capabilities', 'schema'):
+        from . import agent
+        print(json.dumps(getattr(agent, args.command)(), indent=2)); return 0
+    if args.command == 'example':
+        from ._example import EXAMPLE
+        print(json.dumps(EXAMPLE, indent=2)); return 0
+    if args.command == 'doctor':
+        print(json.dumps({'version': __version__, 'python': platform.python_version(),
+                          'platform': platform.platform(),
+                          'native_available': importlib.util.find_spec('pauli_cones._core._native_kernel') is not None,
+                          'qiskit_available': importlib.util.find_spec('qiskit') is not None,
+                          'license': 'Apache-2.0'})); return 0
+    if not math.isfinite(args.timeout) or not 0 < args.timeout <= 3600:
+        return emit_error('InvalidTimeout', 'timeout must be finite and in (0, 3600]',
+                          hint='Pass --timeout with a number of seconds up to 3600.')
+    try:
+        raw = _read(args.input)
+        if len(raw) > MAX_INPUT:
+            return emit_error('InputTooLarge', 'request exceeds 4 MiB', hint='Split the work into smaller requests.')
+        if _is_qasm(args.input, raw):
+            raw = _qasm_request(raw, args)
+        mode = 'plan' if args.command == 'plan' else ('value' if args.value_only else 'request')
+        options = {'threads': getattr(args, 'threads', 1)}
+        if getattr(args, 'min_coefficient', None) is not None or getattr(args, 'max_weight', None) is not None:
+            options['truncation'] = {'min_coefficient': args.min_coefficient or 0., 'max_weight': args.max_weight}
+        env = dict(os.environ)
+        for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+            env[key] = '1'
+        started = time.perf_counter()
+        child = subprocess.run([sys.executable, '-m', 'pauli_cones._worker', getattr(args, 'backend', 'native'),
+                                mode, json.dumps(options)], input=raw, capture_output=True,
+                               timeout=args.timeout, env=env)
+        elapsed = time.perf_counter() - started
+        # Parse a complete response before returning it. Never return a partial batch as success.
+        output = json.loads(child.stdout)
+        if not isinstance(output, dict) or not isinstance(output.get('ok'), bool):
+            return emit_error('InvalidWorkerResponse', 'worker did not return a complete response')
+        if child.returncode != 0 or not output['ok']:
+            print(json.dumps(output, allow_nan=False)); return child.returncode or 2
+        output['timings']['parent_worker_wall_seconds'] = elapsed
+        print(json.dumps(output, allow_nan=False, separators=(',', ':'))); return 0
+    except subprocess.TimeoutExpired:
+        return emit_error('Timeout', 'worker exceeded wall deadline and was terminated', 124,
+                          hint='Run `pauli-cones plan` first; raise --timeout, or approximate with '
+                               '--min-coefficient 1e-4.')
+    except _UsageError as exc:
+        return emit_error('UsageError', str(exc), hint=exc.hint)
+    except (OSError, ValueError, KeyError) as exc:
+        return emit_error(type(exc).__name__, str(exc), hint='Check the input path and format; '
+                          'see `pauli-cones schema`.')
+
+
+class _UsageError(Exception):
+    def __init__(self, message, hint):
+        super().__init__(message)
+        self.hint = hint
+
+
+def _read(path):
+    if path == '-':
+        return sys.stdin.buffer.read(MAX_INPUT + 1)
+    with Path(path).open('rb') as f:
+        return f.read(MAX_INPUT + 1)
+
+
+def _is_qasm(path, raw):
+    head = re.sub(rb'^(\s|//[^\n]*\n)*', b'', raw[:4096])
+    return path.endswith('.qasm') or head.startswith(b'OPENQASM')
+
+
+def _qasm_request(raw, args):
+    """Wrap OpenQASM text and command-line options into the OpenQASM request form."""
+    if not args.observable:
+        raise _UsageError('OpenQASM input needs --observable',
+                          'Add e.g. --observable "Z0" or --observable "0.5*Z0*Z1 - X3".')
+    request = {'schema_version': 1, 'qasm': raw.decode('utf-8'), 'observables': args.observable}
+    if args.max_terms is not None:
+        request['max_terms'] = args.max_terms
+    if args.values:
+        values = json.loads(args.values)
+        request['parameter_vectors'] = values if values and isinstance(values[0], list) else [values]
+    noise = {}
+    if args.noise_1q:
+        noise['depolarizing_1q'] = args.noise_1q
+    if args.noise_2q:
+        noise['depolarizing_2q'] = args.noise_2q
+    if args.readout:
+        noise['readout'] = [float(x) for x in args.readout.split(',')]
+    if noise:
+        request['noise'] = noise
+    if getattr(args, 'value_only', False):
+        request['gradients'] = False
+    return json.dumps(request).encode('utf-8')
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

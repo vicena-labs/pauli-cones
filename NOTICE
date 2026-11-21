@@ -1,0 +1,6 @@
+Pauli Cones
+Copyright 2026 Mehdi Farza and Pauli Cones contributors.
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+Third-party packages are installed separately and retain their own licenses;
+see THIRD_PARTY.md. No third-party simulator implementation is vendored here.

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pauli-cones"
+version = "0.4.0rc1"
+description = "Sparse noisy Pauli-observable simulation and shared-parameter gradients"
+readme = "README.md"
+authors = [{ name = "Mehdi Farza" }]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26,<3"]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY.md"]
+keywords = ["quantum", "simulation", "pauli", "noise", "gradients"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: C++",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Repository = "https://github.com/me-farza/pauli-cones"
+Issues = "https://github.com/me-farza/pauli-cones/issues"
+Changelog = "https://github.com/me-farza/pauli-cones/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+qiskit = ["qiskit>=1.3"]
+
+[project.scripts]
+pauli-cones = "pauli_cones.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pauli_cones = ["AGENT_GUIDE.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

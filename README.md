@@ -1,0 +1,163 @@
+# Pauli Cones
+
+Noisy Pauli-observable expectations and shared-parameter gradients, with a C++ sparse CPU kernel, a Python reference, reusable execution graphs and bounded local density matrices.
+
+**Release candidate 0.4.0rc1, by Mehdi Farza, licensed under Apache-2.0.** It is not yet published on PyPI; install it from a checkout with `pip install .`. Once released, `pip install pauli-cones` will install it. The repository contains the source, tests, examples and benchmark evidence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY.md), [how to cite it](CITATION.cff) and the [related work](docs/related-work.md) it builds on.
+
+## What it computes
+
+A weighted sum of Pauli expectations and its analytic first derivatives with respect to up to 16 shared rotation parameters. It starts from the zero product state and propagates observables backward through a circuit. Native preparation builds only the relevant dependency cones and shares transfer matrices across them.
+
+Supported operations include H, SX, X/Y/Z, RX/RY/RZ, CZ, ECR, fSim (theta derivative only), independent Pauli errors, one/two-qubit depolarization, zero-temperature T1/T2 relaxation, and asymmetric Z readout. The API now addresses **1–16,384 logical qubits**. The optimized native solver still uses **at most 256 active wires per observable causal cone**; larger circuits are remapped into local cones. This is **not** an arbitrary full-state or deep-circuit simulator: in the default exact mode, broad causal cones exceed an explicit limit and refuse instead of returning a partial answer. An optional truncated mode answers deeper circuits approximately and reports a rigorous bound on what it discarded.
+
+The first API does not return full density matrices, statevectors or measurement samples. It does not need a hosted account, API key, internet connection at runtime, or proprietary application installation.
+
+## Install and run locally
+
+Use Python 3.10 or later. NumPy is the only runtime Python dependency. Binary wheels are published for Linux, macOS and Windows; on other platforms, installation compiles the extension and needs a C++17 compiler and Python development headers.
+
+```bash
+python -m pip install pauli-cones      # or, from a checkout: python -m pip install .
+pauli-cones doctor
+pauli-cones example > problem.json
+pauli-cones run problem.json
+```
+
+## Use it from OpenQASM, Qiskit or an agent
+
+Existing circuits run without rewriting. OpenQASM 2 is read with no dependencies; OpenQASM 3 and Qiskit circuits need `pip install "pauli-cones[qiskit]"`. Every gate is decomposed exactly into the native set, and Qiskit Parameters become shared parameters, so one prepared plan serves a whole parameter sweep.
+
+```bash
+pauli-cones plan circuit.qasm --observable "0.5*Z0*Z1 - X3"   # dry run: is exact feasible?
+pauli-cones run circuit.qasm --observable "0.5*Z0*Z1 - X3" --noise-2q 0.01
+```
+
+```python
+from pauli_cones.interop import expectation
+from pauli_cones.estimator import Estimator          # a Qiskit Estimator V2
+
+print(expectation(qiskit_circuit, "Z0*Z1", values={"theta": 0.3}, gradients=True))
+evs = Estimator().run([(qiskit_circuit, observables, parameter_values)]).result()[0].data.evs
+```
+
+The command line is built to be driven by AI agents in a shell:
+- every command prints one JSON document;
+- every error carries a `hint` naming the next step;
+- `pauli-cones capabilities` and `pauli-cones schema` describe the tool;
+- `pauli-cones guide` prints a usage guide written for agents.
+
+[AGENTS.md](AGENTS.md) points agents to it.
+
+No compiler runs when importing the package or evaluating a circuit. `--backend python` selects the reference implementation explicitly. The default native backend fails visibly if its term budget is exceeded.
+
+```python
+from pauli_cones import Circuit
+
+circuit = Circuit(2, n_parameters=1)
+circuit.gate("RY", [0], theta=0.7, param=0)
+circuit.gate("H", [1]).gate("CZ", [0, 1])
+circuit.depolarize([0, 1], probability=0.01)
+circuit.relax(0, duration=2e-7, t1=70e-6, t2=90e-6)
+circuit.readout(0, p01=0.02, p10=0.01)
+
+plan = circuit.prepare([(1.0, {0: "Z"})], backend="native")
+for result in plan.evaluate_many([[0.0], [0.1], [-0.1]]):
+    print(result.value, result.gradient)
+
+# Skip derivative propagation when only values are needed.
+print(plan.evaluate_value([0.1]))
+print(plan.evaluate_values([[0.0], [0.1], [-0.1]]))
+```
+
+### Truncated mode
+
+```python
+from pauli_cones import Truncation
+
+approx = circuit.prepare([(1.0, {0: "Z"})], truncation=Truncation(min_coefficient=1e-4, max_weight=6))
+result = approx.evaluate([0.1])
+print(result.value, result.error_bound, result.gradient_error_bound)
+```
+
+`min_coefficient` discards a term once its coefficient falls below that fraction of the observable's l1 norm; gradient evaluations keep a term while any derivative coefficient is above it. `max_weight` discards terms acting on more than that many wires still open, after early contraction into the input state. `error_bound` is rigorous: a term `c*P` discarded at any point would have contributed `c*Tr(rho P)`, and `|Tr(rho P)| <= 1`. It is a worst case and is often much larger than the actual error, so check convergence by tightening the tolerance until the value stops changing. Truncation runs on `native`, `graph` and `auto`; the other backends refuse it. The native solver chooses the discarded terms afresh at every evaluation. A truncated `graph` chooses them when it compiles, at the angles bound then, and keeps evaluating that smaller graph; its bound is still computed at each evaluation's own angles, so it stays rigorous and grows when the parameters move to where the discarded terms matter. When the bound exceeds `reprepare_factor` (default 2) times its value at compilation, the graph compiles itself again at the current angles; `reprepare_factor=None` keeps the first graph.
+
+`threads=N` in `prepare` evaluates independent cone groups in parallel. Results do not depend on the thread count.
+
+Each vector contains **additive shifts from the original gate angles**, not absolute replacements. Every occurrence of parameter 0 receives the same shift. The returned derivative is with respect to that shared shift. Reusing a plan never reuses a previous numerical answer. Preparing a plan takes an owned snapshot; later edits to the original circuit do not change it.
+
+## Choosing an execution method
+
+| Backend | Use | Limits and behavior |
+| --- | --- | --- |
+| `native` (default) | Sparse local observables and shared gradients | C++ execution; hard live-term cap; early contraction into product inputs |
+| `python` | Inspectable sparse reference | Same transfer conventions and numerical filters; slower Python maps |
+| `graph` | Repeated parameter vectors on manageable structural graphs | Compiles the propagation once, then each evaluation is one pass over stored arithmetic with reverse differentiation; records native fallback if graph preparation exceeds its limits |
+| `dense` | Small cones with broad Pauli support | Analytic channel-adjoint gradients; defaults to six cone wires and a 64 MiB density-array work budget |
+| `auto` | Explicit sparse-to-dense capacity fallback | Falls back on a sparse cap failure only; does not predict the fastest method |
+
+```python
+graph = circuit.prepare([(1.0, {0: "Z"})], backend="graph",
+                        graph_max_nodes=200_000, graph_max_edges=1_000_000)
+result = graph.evaluate([0.1], gradients=False)  # gradient is an empty tuple
+print(result.backend, graph.diagnostics, graph.numerics)
+```
+
+`evaluate_many(..., gradients=False)` returns `Evaluation` objects with empty gradients. The convenience `evaluate_values()` returns only floats. Duplicate observables are combined and exact cancellations are removed before cone construction. Detailed budget and fallback contracts are in [architecture](docs/architecture.md).
+
+## Conventions and numerical boundaries
+
+- `depolarize(..., probability=p)` means total probability of a uniformly chosen nonidentity Pauli error. It is not Aer’s depolarizing lambda; for k wires, `lambda = p * 4**k / (4**k - 1)`.
+- Relaxation duration, T1 and T2 must use the same units; `0 < T2 <= 2*T1`. The model assumes zero temperature.
+- Readout uses `p01=P(measure 1 | prepared 0)` and `p10=P(measure 0 | prepared 1)`. X/Y observables on a wire with this classical Z-readout model are rejected instead of inventing a measurement model.
+- Sparse native/reference arrays are float64, with absolute transfer filtering at `5e-15` and coefficient filtering at `1e-16` times the observable's l1 norm, so results scale linearly with observable weights. Graphs do not prune coefficients; dense arrays are complex128. Structural cone reduction and early product-input contraction are exact algebraically, but no backend certifies an accumulated floating-point error bound. Truncated plans bound the truncation error, not floating-point roundoff. Read `plan.numerics` for the active policy.
+- Exceeding a declared budget fails the request unless an explicitly selected fallback succeeds within its own limits. No incomplete sum is returned as success. A prepared object cannot be evaluated concurrently; use separate plans for parallel callers.
+
+The command-line interface validates a versioned JSON request, limits input to 4 MiB and executes one worker with a wall deadline (`--timeout`, default 60 seconds). The deadline begins after request input has been read. This is not a secure sandbox or a hard RAM budget for untrusted services; see [security boundaries](SECURITY.md).
+
+## Algorithm and architecture playground
+
+The source includes [a developer guide](docs/developer-guide.md), examples for line/grid/custom connectivity, a small MaxCut QAOA circuit, a variational energy/gradient-descent example, and within-package backend comparisons. These examples let researchers build new ansätze on *supplied coupling graphs*; the graphs are not calibrated chips or hardware transpilation. The package remains an optimized **noisy Pauli observable/gradient backend**, not a complete full-state/sampling algorithm suite. See the [capability and speedup inventory](docs/developer-guide.md#which-earlier-optimizations-are-actually-included).
+
+```bash
+python examples/architecture_playground.py --topology grid --rows 2 --cols 2
+python examples/architecture_playground.py --topology custom --file examples/custom_topology.json
+python examples/qaoa_maxcut.py --qubits 3
+python examples/variational_energy.py --steps 6
+python examples/compare_backends.py
+```
+
+## Documentation and development
+
+[Architecture](docs/architecture.md) explains the process and representation choices. [Execution graphs](docs/execution-graph.md) covers reusable topology and reverse differentiation. [JSON interface](docs/json-interface.md) specifies operations and error handling. [Measured performance](docs/performance.md) separates new measurements from historical prototype results. [Comparison methodology](docs/comparison-methodology.md) and the [benchmark harness](benchmarks/README.md) describe independent baselines and missing comparisons. [Release checklist](docs/release-checklist.md) covers source publication.
+
+[Wide-register qualification](docs/large-register-validation.md) documents the 4,096/16,384-qubit local tests and limitations. [Validation](docs/validation.md) records the installed-package checks, numerical coverage, source scanning and remaining qualification limits.
+
+```bash
+python -m pip install '.[test]'
+python -m pytest -q
+python tools/check_source_hygiene.py  # Strict source-archive check.
+# In a Git checkout, use: python tools/check_source_hygiene.py --tracked-only
+python tools/check_release.py
+```
+
+Wheels are built by the [wheel workflow](.github/workflows/wheels.yml) and uploaded to PyPI only from a published GitHub release. The [contribution guide](CONTRIBUTING.md) and [third-party dependency review](THIRD_PARTY.md) explain what is included. Static source checks are safeguards, not proof of ownership or absence of unknown secrets.
+
+The restricted fresh-circuit native executables are retained as **experimental sources**, not exposed as the general package CLI. Their narrower input contract and missing production isolation should not be confused with the public Circuit API.
+
+## Related work and acknowledgements
+
+Pauli Cones implements Heisenberg-picture Pauli propagation, a method developed across a substantial literature, and reuses ideas from several open tools. [Related work](docs/related-work.md) lists the papers and software it builds on, what each contributed, and how Pauli Cones differs.
+
+## Many-qubit circuits and custom backends
+
+Pauli Cones **0.3.0a1** introduced a wide logical-register adapter: 1–16,384 indexed wires, connected line/grid/user-supplied topologies, and native evaluation of local observables even when their wire indices exceed 255. The backward dependency graph for all observables is traversed once. Observables whose combined cone is small enough are grouped, each group is renumbered to its own wires, and all groups run in one native call over one shared bound copy of the circuit. Independent idle wires contract analytically.
+
+```bash
+python examples/large_qubit_grid.py --rows 64 --columns 64 --observables 128 --vertical
+python examples/large_qubit_grid.py --rows 128 --columns 128 --observables 32
+```
+
+These demos use a parameterized RY layer on every physical wire, independent horizontal CZ pairs, an optional `--vertical` CZ matching, depolarizing noise, and sampled Z expectations. **They do not simulate arbitrary strongly entangled 4,096- or 16,384-qubit states.** The public interface keeps the 16-shared-parameter and 1,024-observable limits. Each cone is bounded to 256 physical wires, with stage and Pauli-term budgets; an oversized cone is refused. The `max_cone_qubits` parameter sets a lower refusal threshold at every register width.
+
+Developers can register a trusted backend for tensor networks, trajectory sampling, stabilizers, or another representation without modifying the native solver. `register_backend('ext-example', factory)` expects a factory returning a plan with `bind()` and `evaluate()`; see [the extensibility guide](docs/extensibility.md). External backends must provide their own numerical validation, and they execute in process, not a sandbox. A custom backend receives the full wide register rather than being forced into the 256-wire cone adapter.
+

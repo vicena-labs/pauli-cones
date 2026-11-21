@@ -1,0 +1,16 @@
+include README.md LICENSE NOTICE THIRD_PARTY.md CHANGELOG.md CONTRIBUTING.md SECURITY.md CITATION.cff AGENTS.md
+recursive-include src *.py *.cpp *.md
+recursive-include tests *.py
+recursive-include examples *.json *.py
+recursive-include docs *.md
+recursive-include tools *.py
+recursive-include .github *.yml
+recursive-include experimental *.cpp *.md
+recursive-include benchmarks *.py *.md *.txt *.json
+prune build
+exclude SECURITY_AUDIT.md RELEASE_READINESS.md QUALIFICATION.json BUNDLE_SHA256.json
+exclude SOURCE_PROVENANCE.json RELEASE_APPROVAL.json
+prune dist
+prune .git
+prune .pytest_cache
+global-exclude __pycache__ *.pyc *.so *.pyd *.o

@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use Pauli Cones, please cite it as below."
+title: "Pauli Cones: noisy Pauli-observable expectations and shared-parameter gradients"
+type: software
+authors:
+  - family-names: Farza
+    given-names: Mehdi
+version: 0.4.0rc1
+license: Apache-2.0
+repository-code: "https://github.com/me-farza/pauli-cones"
+keywords:
+  - quantum computing
+  - Pauli propagation
+  - noisy circuit simulation
+  - gradients

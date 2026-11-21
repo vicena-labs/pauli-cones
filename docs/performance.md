@@ -1,0 +1,92 @@
+# Performance evidence and its limits
+
+The architecture cleanup removes demonstrated work and adds alternate representations. It does not establish that Pauli Cones is universally fastest. Use matched inputs, noise, requested outputs, tolerances and resource budgets when comparing it.
+
+## Preliminary comparison of 0.4.0
+
+These figures come from the [independent harness](../benchmarks/independent/README.md) on one Apple M1 Pro laptop (6 performance and 2 efficiency cores) on 2026-11-20. Each figure is a warm median of 5 fresh parameter vectors, with a 120 s limit per run. **They are preliminary.** Background applications used about 1.5–2 of the 8 cores throughout, so single-thread figures vary by up to several times between runs, and the 8-thread figures are not reliable. [All tables](../benchmarks/independent/results-2026-11-20-laptop/v5_tables.md) keep every refusal and timeout. Every exact tool agreed with every other to 4e-13 wherever more than one finished.
+
+**Exact values, Pauli Cones on 1 thread against each competitor's faster of 1 and 8 threads:**
+
+- **Small noiseless circuits (12–20 qubits, 2 layers):** the graph backend (0.03 ms) is 1.7–3.2× faster than PauliPropagation.jl's reusable surrogate, the fair comparison for repeated evaluation.
+- **Noiseless, 20 qubits, 4 layers:** 0.34 ms against Aer's 157 ms.
+- **Noisy circuits:** 53–225× faster than the fastest finishing tool on 10–36 qubits. On 400 and 1,024 qubits the graph takes 0.13–0.35 ms, against 0.5–4.2 s for pauli-prop or PauliPropagation.jl.
+- **127-qubit kicked Ising, 5 steps:** Pauli Cones computes the exact magnetisation in 0.07–5.7 s per evaluation, and quimb, pauli-prop and PauliPropagation.jl did not finish within the limit.
+- **Where Pauli Cones loses:** exact mode refuses the 6–8-layer circuits and the 20-step kicked-Ising circuit, while quimb (0.19–2.2 s) and Aer (6.5 s) solve some of them exactly.
+
+**Truncation at the same coefficient threshold:** thresholds are absolute for the other tools and divided by the observable's l1 norm for Pauli Cones, so all drop the same coefficients.
+
+- **127-qubit kicked Ising at 1e-4:** the truncated graph takes 1.3–12 ms, against 0.19–1.5 s for PauliPropagation.jl and 0.4–6 s for pauli-prop, with about 4–15 times smaller errors. It keeps a term while any derivative coefficient is large, which retains more of the answer.
+- **Noisy 36- and 100-qubit circuits at 1e-4:** the graph takes 11–16 ms, against 0.25–0.63 s for PauliPropagation.jl.
+- **At 1e-5,** several Pauli Cones runs exceeded the term cap or the time limit, while PauliPropagation.jl finished in 5–16 s.
+
+**Threads:** they help only when a circuit splits into many independent cone groups, as on the 400- and 1,024-qubit noisy circuits (2.7–3.8× at 8 threads). All 127 kicked-Ising observables form one joint group, which a single thread evaluates.
+
+## Reviewed source versus cleaned implementation
+
+The recorded revision comparison uses the reviewed November 13 source archive and the cleaned implementation. Eleven distinct vectors are evaluated in isolated persistent workers, alternating method order. Each worker's angle-transfer cache is cleared before every timed public evaluation.
+
+The timer covers parameter validation, fresh-angle binding, native propagation, weighted accumulation and the returned Evaluation. It excludes process startup, imports, installation, circuit construction and preparation.
+
+| Synthetic fixture | Reviewed value + gradient | Cleaned value + gradient | Ratio | Cleaned value only |
+| --- | ---: | ---: | ---: | ---: |
+| 6 wires, depth 4, 16 parameters | 15.256 ms | 2.606 ms | 5.85× | 2.036 ms |
+| 127-wire grid, depth 4, mean local Z | 235.333 ms | 30.987 ms | 7.59× | 25.465 ms |
+
+Maximum old/new discrepancies were 2.22e-15 for values and 2.55e-15 for gradients. These are internal revision comparisons, not external simulator rankings. The 127-wire fixture is a synthetic grid, not the earlier calibrated heavy-hex qualification. Source hashes and every vector/result/timing are retained in [revision evidence](../benchmarks/results/revision_comparison_20261119.json).
+
+Construction and preparation are separately recorded as single observations. They are not repeated setup benchmarks. These single setup observations do not establish a general setup-speed advantage; the repeated-evaluation ratios must not be relabeled as first-request speedups. The recorded revision uses the delivered numerical source, including the graph readout and preparation-fallback corrections; source hashes are retained in the evidence.
+
+Reproduce against a supplied reviewed source directory:
+
+```bash
+python benchmarks/compare_revision.py \
+  --baseline-root /path/to/reviewed/pauli-cones \
+  --compiler g++ --output benchmarks/results/revision_local.json
+```
+
+The driver builds both native C ABIs with the same compiler into temporary storage. It does not include a second vendored baseline in this release.
+
+## Where the improvements come from
+
+Early product-input contraction prevents resolved wires from expanding further. With the original Python wrappers held constant, the synthetic 127-wire depth-four kernel's retained peak fell from 2,401 terms to 81, and evaluation fell from 195.860 ms to 28.066 ms. At depth two, evaluation changed only from 1.225 ms to 1.148 ms. The gain depends on the workload.
+
+A global-Z independent-relaxation fixture shrinks from 4,096 terms to one at 12 wires. At 16 wires the old kernel exceeds the 50,000-term cap while the new kernel completes with one term. This constructed failure case demonstrates a removable representation bottleneck; a refusal is not an infinite speedup.
+
+Dedicated value-only execution uses scalar coefficient storage and avoids tangent propagation. Closed-form rotation transfers remove the small matrix-trace work that previously dominated fresh-angle rebinding. [Native-core evidence](../benchmarks/results/native_core_comparison_20261119.json) separates those kernel timings from the public API comparison.
+
+## External CPU comparison
+
+The optional [comparison harness](../benchmarks/README.md) evaluates Qulacs, Qiskit Aer, IBM pauli-prop and an independent dense channel-adjoint implementation on the common supported subsets. It also compares native, graph and local-density Pauli Cones paths. Full results, failures, timings, versions and final source hashes are in [CPU comparison evidence](../benchmarks/results/cpu_comparison_2026-11-19.json).
+
+The suite records cold-process cost, preparation, fresh-angle resident evaluation, output accuracy and process RSS separately. Its five warm samples each contain three new vectors; the default has only one cold-process sample per pair. These are descriptive shared-host measurements, not confidence intervals or a production latency study.
+
+The final run requested 84 backend/output pairs: 67 eligible successes, 13 unsupported or budget-excluded pairs, two dense resource-limit rejections, one truncated IBM stress result, and one measurement-worker timeout. There were no accuracy failures. Among successful comparisons, the maximum value error was 9.55e-15 and the maximum gradient-component error was 2.07e-14. Runtime and harness hashes were unchanged during the run and match the delivered source.
+
+| Common case and output | Native | Graph | Comparator |
+| --- | ---: | ---: | ---: |
+| 4-wire Pauli noise, value | 0.401 ms | 0.441 ms | IBM pauli-prop: 1.254 ms |
+| 4-wire T1/T2 and readout, value | 0.333 ms | 0.472 ms | Qulacs: 2.902 ms |
+| 4 wires, 8 shared parameters, value + gradient | 2.640 ms | 1.103 ms | Independent dense adjoint: 6.874 ms |
+
+These are warm costs per fresh vector. For the eight-parameter case, graph preparation was 38.195 ms versus 3.218 ms for native, giving an estimated break-even near 23 vectors. The graph's single cold gradient sample was slower: 210.492 ms versus 169.221 ms. Qulacs' two-wire cold value sample was also slightly faster than native (159.750 versus 162.861 ms), but one sample cannot establish a significant small difference. [All recorded tables](../benchmarks/results/README.md) retain these tradeoffs.
+
+Qulacs, Aer and the IBM gradient adapter use exact per-gate parameter shifts, with all occurrences summed into the shared-parameter derivative. The independent dense comparator uses analytic reverse differentiation. Neither a finite-difference baseline nor an unimplemented optimal native noisy-adjoint is presented as the competitor's best possible algorithm. The Aer adapter's unmeasured runtime binding and job-batching options are explicitly documented.
+
+IBM's term cap can truncate, whereas the native Pauli Cones cap fails. Any nonzero reported discarded coefficient norm makes that IBM result ineligible for an exact speed comparison, even if its scalar happens to pass the accuracy tolerance.
+
+The Aer timeout applies to a 40-second measurement worker containing validation, many timed evaluations and setup checks. It does not mean one gradient takes 40 seconds.
+
+## Choosing graph or dense execution
+
+Graph preparation stores structural paths. With the C++ graph compiler, every warm graph evaluation measured in the earlier single-thread runs was faster than native, by 1.5× on a 100-qubit single-observable cone and by 46–95× on the deep and wide noisy circuits. On those deep and wide circuits graph preparation costs about one native evaluation, so preparation plus the first evaluation already beats native. On small circuits graph preparation takes 4–11 ms against native's 2–10 ms and is repaid after 4–63 parameter vectors. Larger structural graphs can exceed their budget, and the native backend remains the one for one-off evaluations and truncated mode. The graph remains opt-in, and any fallback is reported. These figures are single-machine measurements on Apple silicon, one thread, warm medians of 11 fresh vectors.
+
+The local dense backend is a bounded capacity alternative with analytic noisy gradients. It is not intended to beat tuned external density simulators on every tiny case. The explicit auto mode uses it after a sparse cap failure, subject to its own cone and array-work limits; it does not predict the fastest method.
+
+## Coverage boundaries
+
+Julia PauliPropagation, CUDA cuPauliProp, MPO/MPDO, tensor networks and stochastic trajectories have not been timed here. The CPU suite records their absence and does not infer a ranking. Accurate trajectory comparisons require a common variance/error target. Unitary-only surrogates cannot silently replace deterministic T1/T2 evolution.
+
+Historical benchmark results belong to their exact revisions, machines, circuit families and timing scopes. In particular, the previous restricted 127-wire fresh-circuit constructor, the general package API, and hosted agent/network/UI latency are different measurements. No current result establishes deployment latency or arbitrary 256-wire tractability.
+
+Read the [comparison methodology](comparison-methodology.md) for complete contracts and primary upstream references. Return to [README](../README.md).
