@@ -21,6 +21,23 @@ def main():
         backend=sys.argv[1]
         start=time.perf_counter()
         data=strict_json(sys.stdin.buffer.read(4*1024*1024+1).decode('utf-8'))
+        if isinstance(data, dict) and 'sweep' in data:
+            from .experiments import sweep
+            spec = data['sweep']
+            allowed = {'circuit', 'family', 'family_parameters', 'sizes', 'observable', 'devices', 'noise_scales',
+                       'router', 'layout', 'idle_noise'}
+            unknown = set(spec) - allowed
+            if unknown:
+                raise ValueError(f"unknown sweep fields {sorted(unknown)}")
+            result = sweep(spec.get('family') or spec['circuit'], spec.get('observable'),
+                           devices=spec.get('devices'), noise_scales=spec.get('noise_scales', [1.0]),
+                           sizes=spec.get('sizes'), router=spec.get('router', 'greedy'),
+                           layout=spec.get('layout', 'greedy'), idle_noise=spec.get('idle_noise', True),
+                           family_parameters=spec.get('family_parameters'))
+            print(json.dumps({'ok': True, 'schema_version': 1, 'rows': result.rows,
+                              'timings': {'worker_seconds': time.perf_counter() - start}},
+                             allow_nan=False, separators=(',', ':')), flush=True)
+            return 0
         from .schema import decode_request
         decoded = decode_request(data)
         c, obs, vecs = decoded[:3]

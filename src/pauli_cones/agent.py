@@ -41,6 +41,9 @@ def capabilities():
                    "apply a chip's noise and check its connectivity with --device on run and plan; "
                    "route onto it and simulate gate errors, idle T1/T2 and readout with --compile, "
                    "or report SWAPs, depth and duration with `pauli-cones compile`",
+        "sweeps": "`pauli-cones sweep` compiles and solves over chips, noise scales and sizes, with built-in "
+                  "families ghz, hardware-efficient, qaoa-ring and ising-trotter; the solver is chosen per point "
+                  "(exact native, exact dense, then truncated with a convergence check)",
         "converted_gates": SUPPORTED_GATES,
         "other_gates": "transpiled by Qiskit when it is installed",
         "noise": ["DEPOLARIZE (1 or 2 wires)", "PAULI_ERROR", "RELAX (T1/T2)", "readout (p01, p10)",

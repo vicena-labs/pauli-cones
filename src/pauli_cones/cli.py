@@ -5,6 +5,7 @@ error.type, error.message and error.hint with a concrete next step.
     pauli-cones capabilities | schema | guide | example | doctor
     pauli-cones devices | device NAME [--param k=v]   # chip catalogue and descriptions
     pauli-cones compile INPUT --device NAME           # route onto a chip: SWAPs, depth, duration, layouts
+    pauli-cones sweep [INPUT | --family NAME --sizes 8,16] --device SPEC ... --noise-scales 0,1,2
     pauli-cones plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
     pauli-cones run   INPUT [--observable EXPR] [options]
 
@@ -80,7 +81,23 @@ def main(argv=None):
             cmd.add_argument('--max-weight', type=int, default=None,
                              help='Truncate terms acting on more open wires than this')
             cmd.add_argument('--threads', type=int, default=1, help='Threads for independent cone groups')
+    sw = sub.add_parser('sweep', help='Compile and solve over chips, noise scales and sizes; one row per point')
+    sw.add_argument('input', nargs='?', help='OpenQASM file; or use --family')
+    sw.add_argument('--family', help='Built-in circuit family: ghz, hardware-efficient, qaoa-ring, ising-trotter')
+    sw.add_argument('--sizes', help='Comma-separated qubit counts for --family, e.g. 8,16,32')
+    sw.add_argument('--family-param', action='append', default=[], help='Family parameter, e.g. p=2')
+    sw.add_argument('--observable', help='Observable; a family supplies its own when omitted')
+    sw.add_argument('--device', action='append', default=[],
+                    help='Chip, repeatable: catalogue name, "name:k=v,k=v", or a .json file')
+    sw.add_argument('--noise-scales', default='1', help='Comma-separated noise multipliers, e.g. 0,0.5,1,2')
+    sw.add_argument('--router', choices=('greedy', 'sabre'), default='greedy')
+    sw.add_argument('--layout', choices=('greedy', 'trivial'), default='greedy')
+    sw.add_argument('--no-idle-noise', action='store_true')
+    sw.add_argument('--format', choices=('json', 'markdown', 'csv'), default='json')
+    sw.add_argument('--timeout', type=float, default=600.0, help='Worker wall deadline in seconds')
     args = p.parse_args(argv)
+    if args.command == 'sweep':
+        return _sweep(args)
     if args.command == 'guide':
         from .agent import guide
         # The guide is UTF-8 Markdown; write bytes so a console's legacy encoding cannot fail.
@@ -153,6 +170,47 @@ class _UsageError(Exception):
     def __init__(self, message, hint):
         super().__init__(message)
         self.hint = hint
+
+
+def _sweep(args):
+    """Run a sweep in the worker and print its rows as JSON, Markdown or CSV."""
+    if bool(args.input) == bool(args.family):
+        return emit_error('UsageError', 'give an OpenQASM file or --family, not both or neither',
+                          hint='e.g. `pauli-cones sweep --family ghz --sizes 8,16 --device heavy-hex-127`.')
+    spec = {'noise_scales': [float(x) for x in args.noise_scales.split(',')], 'router': args.router,
+            'layout': args.layout, 'idle_noise': not args.no_idle_noise, 'observable': args.observable}
+    devices_spec = []
+    for d in args.device:
+        if d.endswith('.json'):
+            devices_spec.append(json.loads(Path(d).read_text()))
+        else:
+            devices_spec.append(d)
+    spec['devices'] = devices_spec
+    if args.family:
+        if not args.sizes:
+            return emit_error('UsageError', '--family needs --sizes', hint='Add e.g. --sizes 8,16,32.')
+        spec.update(family=args.family, sizes=[int(x) for x in args.sizes.split(',')],
+                    family_parameters=_params(args.family_param))
+    else:
+        if not args.observable:
+            return emit_error('UsageError', 'an OpenQASM sweep needs --observable', hint='Add e.g. --observable "Z0".')
+        spec['circuit'] = _read(args.input).decode('utf-8')
+    try:
+        child = subprocess.run([sys.executable, '-m', 'pauli_cones._worker', 'native', 'sweep', '{}'],
+                               input=json.dumps({'sweep': spec}).encode(), capture_output=True, timeout=args.timeout)
+    except subprocess.TimeoutExpired:
+        return emit_error('Timeout', 'sweep exceeded its deadline', 124,
+                          hint='Raise --timeout, or sweep fewer sizes, chips or noise scales.')
+    output = json.loads(child.stdout)
+    if not output.get('ok'):
+        print(json.dumps(output)); return child.returncode or 2
+    if args.format == 'json':
+        print(json.dumps(output, allow_nan=False, separators=(',', ':')))
+    else:
+        from .experiments import SweepResult
+        table = SweepResult(output['rows'])
+        print(table.markdown() if args.format == 'markdown' else table.csv(), end='\n')
+    return 0
 
 
 def _params(pairs):

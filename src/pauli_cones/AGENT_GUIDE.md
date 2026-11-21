@@ -52,6 +52,24 @@ Compiling does four things:
 
 Observables keep the circuit's own qubit numbers; they are moved to the final layout for you. `--noise-scale` multiplies every error and decoherence rate, so 0 is noise-free and repeating a run at several scales is a noise sweep. In Python: `from pauli_cones.compiler import compile_circuit`, then `compile_circuit(circuit, chip).expectation("Z0*Z1")`.
 
+## Sweeps
+
+Compare chips, noise levels and sizes in one command; each row gives the value, the ideal noise-free value, the deviation, the method used, and the routing cost:
+
+```bash
+pauli-cones sweep --family qaoa-ring --sizes 8,12,16 --family-param p=2 \
+    --device heavy-hex-127 --device "all-to-all-ions:n=16" --noise-scales 0,0.5,1,2 --format markdown
+pauli-cones sweep circuit.qasm --observable "Z0*Z5" --device my_chip.json --noise-scales 1,2
+```
+
+Built-in families, each with its own observable:
+- `ghz`;
+- `hardware-efficient`;
+- `qaoa-ring` (MaxCut);
+- `ising-trotter`.
+
+The solver is chosen per point: exact sparse propagation, then exact dense for cones of at most 6 wires, then truncation at 1e-4 and 1e-5. A truncated row has `exact: false`, an `error_bound`, and the `convergence_change` between the two tolerances. A chip too small for a size gives a row with `error` instead of stopping the sweep. In Python: `from pauli_cones.experiments import sweep, solve`.
+
 ## Recipe
 
 1. **Plan.** `pauli-cones plan`: if `exact_guaranteed` is true, exact evaluation cannot exceed the term cap.

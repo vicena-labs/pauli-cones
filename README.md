@@ -74,6 +74,13 @@ With `--device`, the response reports any two-qubit operations on qubits the chi
 
 Observables keep the circuit's qubit numbers, and `noise_scale` multiplies every error and decoherence rate for noise sweeps. Without noise, a compiled circuit reproduces the original expectation exactly.
 
+Sweeps put it together: compile and solve over chips, noise scales and sizes, with the ideal value and routing cost beside every point. The solver is chosen automatically and every row says whether it is exact.
+
+```bash
+pauli-cones sweep --family qaoa-ring --sizes 8,12,16 --device heavy-hex-127 \
+    --device "all-to-all-ions:n=16" --noise-scales 0,1,2 --format markdown
+```
+
 ```python
 from pauli_cones.compiler import compile_circuit
 compiled = compile_circuit(circuit_qasm, devices.get("heavy-hex-127"), noise_scale=2)
