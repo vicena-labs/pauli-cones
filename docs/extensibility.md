@@ -44,6 +44,6 @@ This contract accepts external implementations but **does not claim they exist**
 
 - `native` uses the grouped single-call solver when logical qubits >256, and so does `auto` with a `Truncation`. `graph` compiles the same grouped cones into one graph set, reporting `wide-graph`, and falls back to `wide-native` over its budgets. Exact `auto`, `dense` and `python` run on per-cone remapped plans, subject to their own limits. All report backend `wide-*`.
 - `max_cone_qubits` can be less than 256, but not greater. It is enforced at every register width, including registers of 256 wires or fewer; it does not apply to `ext-*` backends. To solve truly wider interacting cones, implement a different backend rather than increasing an unsafe native mask constant.
-- The default numerical engine is still limited to 16 shared rotation parameters. A new backend does not currently relax API-wide parameter constraints.
+- Circuits take up to 4,096 shared parameters. The native kernel carries 16 derivatives per pass and computes more in successive passes; the graph backend computes any number in one reverse pass.
 - This is research software, not a malicious-plugin execution boundary. Only register trusted factories.
 - No universal performance or accuracy guarantee follows from addressable register width. Test against independent references where feasible.

@@ -151,7 +151,9 @@ seconds in the qualification runs. Where the graph fits, its preparation takes
 ## Resource limits and fallback
 
 Internal construction accepts `max_nodes` and `max_edges`, defaulting to 200,000
-and 1,000,000, as totals over all groups. It also enforces the circuit's
+and 1,000,000, as totals over all groups; `Circuit.prepare` passes its own
+defaults of 2,000,000 nodes and 10,000,000 edges (about 120 MB at most), large
+enough for ansatze with hundreds of parameters. It also enforces the circuit's
 `max_terms` on the live structural terms of each group after every stage.
 Counts are checked as nodes and edges are added.
 Exceeding one of these limits raises `GraphLimitExceeded`, a `ConeOverflow`

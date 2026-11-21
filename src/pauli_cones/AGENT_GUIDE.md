@@ -1,15 +1,15 @@
 # Pauli Cones: guide for agents
 
-Pauli Cones computes expectation values of Pauli observables on noisy quantum circuits that start in |0...0>, and their exact gradients in up to 16 shared parameters. It propagates the observable backward through its light cone, so cost depends on the cone, not the register: a local observable on a 1,000-qubit shallow circuit is cheap, while a deep, noiseless, highly entangling circuit may be refused or need truncation.
+Pauli Cones computes expectation values of Pauli observables on noisy quantum circuits that start in |0...0>, and their exact gradients in up to 4,096 shared parameters. It propagates the observable backward through its light cone, so cost depends on the cone, not the register: a local observable on a 1,000-qubit shallow circuit is cheap, while a deep, noiseless, highly entangling circuit may be refused or need truncation. Around that core it simulates states and samples bitstrings, builds Hamiltonians, optimises VQE and QAOA, extrapolates to zero noise, estimates shot noise, and models, compiles onto and designs chips.
 
 ## When to use it
 
-- **Use it for:** expectation values and gradients of noisy or shallow circuits, VQE energies, local observables on many qubits, and sweeps over many parameter vectors.
+- **Use it for:** expectation values and gradients of noisy or shallow circuits, local observables on many qubits, VQE and QAOA with exact gradients, Hamiltonian dynamics, zero-noise extrapolation, shot budgets, sampling (up to 28 qubits, any size for Clifford circuits), and chip comparison and design.
 - **Use something else for:**
-  - sampling bitstrings, or quantities other than Pauli expectations;
   - mid-circuit measurement, resets or classical control;
   - initial states other than |0...0>;
-  - deep noiseless circuits where `plan` shows wide cones and exact answers are required. For those, a tensor-network or statevector simulator may be faster.
+  - deep noiseless circuits beyond 28 qubits where `plan` shows wide cones and exact answers are required. A tensor-network simulator may handle those;
+  - error-correction decoding and annealing schedules, which are not built in yet.
 
 ## Five commands
 
@@ -68,7 +68,7 @@ Built-in families, each with its own observable:
 - `qaoa-ring` (MaxCut);
 - `ising-trotter`.
 
-The solver is chosen per point: exact sparse propagation, then exact dense for cones of at most 6 wires, then truncation at 1e-4 and 1e-5. A truncated row has `exact: false`, an `error_bound`, and the `convergence_change` between the two tolerances. A chip too small for a size gives a row with `error` instead of stopping the sweep. In Python: `from pauli_cones.experiments import sweep, solve`.
+The solver is chosen per point: exact sparse propagation, then the state vector (noise-free, up to 24 qubits) or density matrix (noisy, up to 10 qubits), then exact dense for cones of at most 6 wires, then truncation at 1e-4 and 1e-5. A truncated row has `exact: false`, an `error_bound`, and the `convergence_change` between the two tolerances. A chip too small for a size gives a row with `error` instead of stopping the sweep. In Python: `from pauli_cones.experiments import sweep, solve`.
 
 ## Designing chips
 
@@ -97,6 +97,36 @@ More options:
 In a sweep, `--device fit:heavy-hex-127` grows the chip to fit each size.
 
 The result is an ordinary device file: use it anywhere a device goes (`--device modular.json`). `compare` ranks chips by mean deviation from the ideal value on a benchmark family, with mean SWAPs, two-qubit gates and duration. In Python, `pauli_cones.design` has the same operations.
+
+## Hamiltonians and algorithms
+
+```bash
+pauli-cones hamiltonian --model heisenberg --lattice grid --size 3,3 --model-param j=1 --out h.json
+pauli-cones optimize --hamiltonian h.json --layers 3 --steps 300 --progress          # VQE
+pauli-cones optimize --algorithm qaoa --model maxcut --lattice regular --size 12,3 --depth 2
+pauli-cones optimize --hamiltonian h.json --device heavy-hex-127 --method spsa       # on a noisy chip
+pauli-cones zne circuit.qasm --observable "Z0*Z1" --device heavy-hex-127 --fit richardson
+pauli-cones shot-noise circuit.qasm --observable h.json --shots 10000
+```
+
+- Models: `transverse-field-ising` (j, h), `heisenberg` (j, h), `maxcut` (weights), `fermi-hubbard` (t, u, mu; spin-up wires first). Lattices: `chain` (n), `grid` (rows, columns), `regular` (n, degree). `hamiltonian` also reports the exact ground energy up to 14 qubits.
+- `optimize` returns the best value, the parameters, the exact optimum as `reference` when the system is small, and a `trace` with the value and gradient norm of every iteration. QAOA adds the approximation ratio and the best sampled bitstring. Methods: `adam` (default), `gd`, `lbfgs`, and `spsa`, which uses values only, as a hardware run would.
+- `zne` amplifies every device error by each `--scales` factor, fits, and reports the estimate with the ideal and unmitigated values, so you can see how much mitigation recovers.
+- `shot-noise` gives the standard error a hardware run with that many shots would have, measuring qubit-wise commuting groups, with exact variances.
+- In Python: `from pauli_cones import hamiltonians as hm, algorithms as al`. `hm.trotter(h, "t", steps=8)` makes time a differentiable parameter; `al.Objective(circuit, h, device=chip)` gives value and gradient at any parameter vector from one reused plan.
+
+## States and samples
+
+```bash
+pauli-cones sample circuit.qasm --shots 4000 --device heavy-hex-127 --seed 1   # noisy bitstrings, wire 0 rightmost
+pauli-cones statevector circuit.qasm                                          # amplitudes, top bitstrings
+```
+
+Sampling is exact from the density matrix up to 10 qubits, then uses one quantum trajectory per shot up to 28 qubits; larger Clifford circuits go to Stim. `exact_distribution` says whether the samples follow the noisy distribution exactly. On a chip, only the qubits the circuit uses are simulated.
+
+## Results, progress and checkpoints
+
+Every result has `schema` (`pauli-cones-<kind>/1`) and `provenance` (versions, request SHA-256, seed, time); quote the provenance when you report a number. `compile` adds a `noise_budget` per qubit and per coupler, and `--schedule` lists every gate with its start time and duration. `--progress` streams one JSON line per completed unit on standard error. `sweep --checkpoint run.jsonl` records finished points, so a rerun after a timeout resumes instead of starting over.
 
 ## Recipe
 
@@ -137,6 +167,6 @@ for values in sweep:
 
 ## Verify before reporting
 
-- **Cross-check small cases:** on a reduced instance (at most about 20 qubits), compare against an independent simulator, or against `--backend python` or `dense`.
+- **Cross-check small cases:** on a reduced instance (at most about 20 qubits), `solve(circuit, terms, cross_check=True)` compares Pauli propagation with state simulation and reports `cross_check.agrees`; or compare against `--backend python` or `dense`.
 - **Report truncation fully:** for truncated results, state the threshold and the convergence check, not only the bound.
 - **Mind the noise convention:** noise probabilities are total non-identity Pauli error probabilities. Qiskit Aer's depolarizing parameter λ equals p·4^k/(4^k−1) for k wires.

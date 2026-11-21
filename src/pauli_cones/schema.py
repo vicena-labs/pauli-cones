@@ -47,7 +47,7 @@ def decode_request(data):
         if q in seen: raise ValueError("duplicate readout wire")
         seen.add(q); c.readout(q,item['p01'],item['p10'])
     rawobs=data['observables']
-    if not isinstance(rawobs,list) or not 1<=len(rawobs)<=1024: raise ValueError("provide 1..1024 observable terms")
+    if not isinstance(rawobs,list) or not 1<=len(rawobs)<=65536: raise ValueError("provide 1..65536 observable terms")
     obs=[]
     for item in rawobs:
         fields(item,('coefficient','pauli'))
@@ -91,7 +91,7 @@ def decode_qasm_request(data):
             fields(item, ('coefficient', 'pauli'))
         raw = [(item['coefficient'], {int(q): a for q, a in item['pauli'].items()}) for item in raw]
     obs = readout_expand(parse_observable(raw, c.n_qubits), readout)
-    if not 1 <= len(obs) <= 1024: raise ValueError("provide 1..1024 observable terms")
+    if not 1 <= len(obs) <= 65536: raise ValueError("provide 1..65536 observable terms")
     vecs = data.get('parameter_vectors', [[0.0] * len(converted.parameters)])
     if not isinstance(vecs, list) or not 1 <= len(vecs) <= 128 or any(not isinstance(v, list) for v in vecs):
         raise ValueError("parameter_vectors must contain 1..128 lists")
@@ -121,9 +121,9 @@ def decode_compiled_request(data):
             fields(item, ('coefficient', 'pauli'))
         raw = [(item['coefficient'], {int(q): a for q, a in item['pauli'].items()}) for item in raw]
     obs = compiled.observable(raw)
-    if not 1 <= len(obs) <= 1024: raise ValueError("provide 1..1024 observable terms")
+    if not 1 <= len(obs) <= 65536: raise ValueError("provide 1..65536 observable terms")
     vecs = data.get('parameter_vectors', [[0.0] * len(compiled.parameters)])
     if not isinstance(vecs, list) or not 1 <= len(vecs) <= 128 or any(not isinstance(v, list) for v in vecs):
         raise ValueError("parameter_vectors must contain 1..128 lists")
     shifts = [compiled.shifts(v) if compiled.parameters else v for v in vecs]
-    return compiled.circuit, obs, shifts, compiled.report
+    return compiled.circuit, obs, shifts, {**compiled.report, "schedule": compiled.schedule}

@@ -43,7 +43,10 @@
 #define PAULI_API extern "C" __attribute__((visibility("default")))
 #endif
 
-constexpr int K = 17;  // Scalar and at most 16 shared derivatives.
+constexpr int K = 17;  // Scalar and at most 16 shared derivatives (sparse solver).
+// The graph's reverse pass costs the same for any parameter count; its
+// truncated forward tangents grow with it, so the count is still bounded.
+constexpr int GRAPH_MAX_PARAMS = 4096;
 constexpr double TRANSFER_ZERO = 5e-15;
 constexpr double COEFFICIENT_ZERO = 1e-16;
 
@@ -950,7 +953,7 @@ PAULI_API int pauli_graph_compile(
     *handle = nullptr;
     *stats = CGraphStats{};
     stats->failed_group = -1;
-    if (ngroups < 0 || (ngroups && !groups) || nthreads < 1 || nparams < 0 || nparams > 16 ||
+    if (ngroups < 0 || (ngroups && !groups) || nthreads < 1 || nparams < 0 || nparams > GRAPH_MAX_PARAMS ||
         nfull < 0 || (nfull && (!full_stages || !support)) || max_terms < 1 ||
         max_nodes < 1 || max_nodes > UINT32_MAX - 1 || max_edges < 1 || max_edges > UINT32_MAX ||
         !(truncate_below >= 0.) || !std::isfinite(truncate_below) || max_weight < -1 ||
@@ -1015,15 +1018,17 @@ PAULI_API int pauli_graph_evaluate(
     int nthreads, double* out, double* bounds
 ) {
     auto* set = static_cast<GraphSet*>(handle);
-    if (!set || !out || nthreads < 1 || nparams < 0 || nparams > 16 || nfull != set->nfull ||
+    if (!set || !out || nthreads < 1 || nparams < 0 || nparams > GRAPH_MAX_PARAMS || nfull != set->nfull ||
         (nfull && !full_stages)) return -2;
     for (int i = 0; i < nfull; ++i)
         if (full_stages[i].param < -1 || full_stages[i].param >= nparams) return -2;
     const int noutputs = with_gradient ? nparams + 1 : 1;
-    std::vector<std::array<double, K>> partial, partial_bounds;
+    // One row of nparams + 1 outputs per group, summed afterwards in group order.
+    const size_t width = static_cast<size_t>(nparams) + 1;
+    std::vector<double> partial, partial_bounds;
     try {
-        partial.resize(set->groups.size());
-        partial_bounds.resize(set->groups.size());
+        partial.assign(set->groups.size() * width, 0.);
+        partial_bounds.assign(set->groups.size() * width, 0.);
     } catch (std::bad_alloc const&) { return -3; }
     // A thread pays off only with enough edges to keep it busy for longer than
     // starting it takes (tens of microseconds).
@@ -1033,10 +1038,8 @@ PAULI_API int pauli_graph_evaluate(
     std::atomic<int> code{0};
     const int pool = parallel_for(static_cast<int>(set->groups.size()), workers, [&](int i) {
         Graph& g = set->groups[i];
-        double* o = partial[i].data();
-        double* b = partial_bounds[i].data();
-        std::fill_n(o, K, 0.);
-        std::fill_n(b, K, 0.);
+        double* o = &partial[static_cast<size_t>(i) * width];
+        double* b = &partial_bounds[static_cast<size_t>(i) * width];
         try {
             if (g.nodes == 0) return true;
             if (g.truncating) {
@@ -1050,14 +1053,14 @@ PAULI_API int pauli_graph_evaluate(
     if (pool) return pool;
     if (code) return code;
     std::fill_n(out, noutputs, 0.);
-    for (auto const& p : partial)
-        for (int j = 0; j < noutputs; ++j) out[j] += p[j];
+    for (size_t i = 0; i < set->groups.size(); ++i)
+        for (int j = 0; j < noutputs; ++j) out[j] += partial[i * width + j];
     for (int j = 0; j < noutputs; ++j)
         if (!std::isfinite(out[j])) return -5;
     if (bounds) {
         std::fill_n(bounds, noutputs, 0.);
-        for (auto const& p : partial_bounds)
-            for (int j = 0; j < noutputs; ++j) bounds[j] += p[j];
+        for (size_t i = 0; i < set->groups.size(); ++i)
+            for (int j = 0; j < noutputs; ++j) bounds[j] += partial_bounds[i * width + j];
         for (int j = 0; j < noutputs; ++j)
             if (!std::isfinite(bounds[j])) return -5;
     }

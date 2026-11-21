@@ -2,15 +2,15 @@
 
 Noisy Pauli-observable expectations and shared-parameter gradients, with a C++ sparse CPU kernel, a Python reference, reusable execution graphs and bounded local density matrices.
 
-**Release candidate 0.4.0rc4, by Mehdi Farza, licensed under Apache-2.0.** It is not yet published on PyPI; install it from a checkout with `pip install .`. Once released, `pip install pauli-cones` will install it. The repository contains the source, tests, examples and benchmark evidence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY.md), [how to cite it](CITATION.cff) and the [related work](docs/related-work.md) it builds on.
+**Release candidate 0.5.0rc1, by Mehdi Farza, licensed under Apache-2.0.** It is not yet published on PyPI; install it from a checkout with `pip install .`. Once released, `pip install pauli-cones` will install it. The repository contains the source, tests, examples and benchmark evidence. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY.md), [how to cite it](CITATION.cff) and the [related work](docs/related-work.md) it builds on.
 
 ## What it computes
 
-A weighted sum of Pauli expectations and its analytic first derivatives with respect to up to 16 shared rotation parameters. It starts from the zero product state and propagates observables backward through a circuit. Native preparation builds only the relevant dependency cones and shares transfer matrices across them.
+A weighted sum of Pauli expectations and its analytic first derivatives with respect to up to 4,096 shared parameters, each entering its gates' angles linearly (`k*p + b`). It starts from the zero product state and propagates observables backward through a circuit. Native preparation builds only the relevant dependency cones and shares transfer matrices across them. Around that core sit state simulation and sampling, Hamiltonians, optimisers, zero-noise extrapolation, chips and a compiler, so an agent can develop an algorithm, test it on realistic hardware and design the hardware in one package.
 
-Supported operations include H, SX, X/Y/Z, RX/RY/RZ, CZ, ECR, fSim (theta derivative only), independent Pauli errors, one/two-qubit depolarization, zero-temperature T1/T2 relaxation, and asymmetric Z readout. The API now addresses **1–16,384 logical qubits**. The optimized native solver still uses **at most 256 active wires per observable causal cone**; larger circuits are remapped into local cones. This is **not** an arbitrary full-state or deep-circuit simulator: in the default exact mode, broad causal cones exceed an explicit limit and refuse instead of returning a partial answer. An optional truncated mode answers deeper circuits approximately and reports a rigorous bound on what it discarded.
+Supported operations include H, SX, X/Y/Z, RX/RY/RZ, CZ, ECR, fSim (theta derivative only), any fixed one- or two-qubit unitary, independent Pauli errors, one/two-qubit depolarization, zero-temperature T1/T2 relaxation, and asymmetric Z readout. The API now addresses **1–16,384 logical qubits**. The optimized native solver still uses **at most 256 active wires per observable causal cone**; larger circuits are remapped into local cones. This is **not** an arbitrary full-state or deep-circuit simulator: in the default exact mode, broad causal cones exceed an explicit limit and refuse instead of returning a partial answer. An optional truncated mode answers deeper circuits approximately and reports a rigorous bound on what it discarded.
 
-The first API does not return full density matrices, statevectors or measurement samples. It does not need a hosted account, API key, internet connection at runtime, or proprietary application installation.
+Pauli propagation itself returns expectation values, not states or samples; `pauli_cones.statevector` adds those for circuits of up to 28 qubits (12 for noisy density matrices), and Stim samples larger Clifford circuits. Nothing needs a hosted account, API key, internet connection at runtime, or proprietary application installation.
 
 ## Install and run locally
 
@@ -39,6 +39,41 @@ from pauli_cones.estimator import Estimator          # a Qiskit Estimator V2
 print(expectation(qiskit_circuit, "Z0*Z1", values={"theta": 0.3}, gradients=True))
 evs = Estimator().run([(qiskit_circuit, observables, parameter_values)]).result()[0].data.evs
 ```
+
+## Algorithms: Hamiltonians, optimisation, mitigation and shot noise
+
+`pauli_cones.hamiltonians` builds Pauli-sum Hamiltonians (transverse-field Ising, Heisenberg/XXZ, Max-Cut and Fermi-Hubbard under Jordan–Wigner, on chains, grids and random regular graphs) or loads them from JSON, strings, Qiskit `SparsePauliOp` or OpenFermion `QubitOperator`. `trotter` and `qaoa` turn them into circuits whose angles are shared, weighted parameters, so time or the QAOA angles are differentiable. `pauli_cones.algorithms` adds an `Objective` that reuses one plan per Hamiltonian, optimisers (Adam, gradient descent, SPSA, L-BFGS) that keep a full trace, `vqe`, `qaoa`, zero-noise extrapolation (`zne`) and the statistical error of a hardware run with a given number of shots (`shot_noise`).
+
+```python
+from pauli_cones import algorithms as al, devices, hamiltonians as hm
+
+h = hm.heisenberg(hm.chain(8))
+result = al.vqe(h, al.hardware_efficient(8, layers=3), steps=300)      # exact gradients, 64 parameters
+print(result.value, result.reference)                                     # versus exact diagonalisation
+noisy = al.vqe(h, al.hardware_efficient(8, layers=3), device=devices.get("heavy-hex-127"))
+cut = al.qaoa(hm.maxcut(hm.random_regular(12, 3)), depth=2)               # approximation ratio, best bitstring
+```
+
+```bash
+pauli-cones optimize --model heisenberg --lattice grid --size 3,3 --device heavy-hex-127 --progress
+pauli-cones zne circuit.qasm --observable "Z0*Z1" --device square-grid --fit richardson
+pauli-cones shot-noise circuit.qasm --observable h.json --shots 10000
+```
+
+With more than 16 parameters, gradients come from the graph backend's single reverse pass (the native solver computes them 16 per pass). On a 12-qubit, 120-parameter ansatz with a Heisenberg Hamiltonian the graph returns the value and all 120 derivatives in 5 ms, against 0.85 s for the native passes (an Apple M-series laptop, one thread).
+
+## States and sampling
+
+`pauli_cones.statevector` simulates states directly: amplitudes of noise-free circuits up to 28 qubits, density matrices up to 12 qubits, and measured bitstrings with noise and readout error, sampled exactly from the density matrix or from one quantum trajectory per shot. Clifford circuits of any size are sampled through Stim (`pip install "pauli-cones[stim]"`). A circuit compiled onto a large chip is sampled on the qubits it uses only. The solver router cross-checks Pauli propagation against these simulators on request (`solve(..., cross_check=True)`).
+
+```bash
+pauli-cones sample circuit.qasm --shots 4000 --device heavy-hex-127 --seed 1
+pauli-cones statevector circuit.qasm
+```
+
+## Output contracts
+
+Every command prints one JSON document tagged `schema: pauli-cones-<kind>/1` with a `provenance` record (package and library versions, platform, SHA-256 of the canonical request, seed, UTC time), so a result can be reproduced and cited. Compiling reports a noise budget per qubit and per coupler (gate, idle, spectator and readout errors and ZZ phase) and, with `--schedule`, every gate's physical qubits, start time and duration; chips carry qubit coordinates in lattice units. Long tasks stream JSON-line progress events on standard error with `--progress`, and sweeps resume from a `--checkpoint` file. Fields are only added within a schema version.
 
 ## Chips
 
@@ -151,7 +186,7 @@ Each vector contains **additive shifts from the original gate angles**, not abso
 
 ```python
 graph = circuit.prepare([(1.0, {0: "Z"})], backend="graph",
-                        graph_max_nodes=200_000, graph_max_edges=1_000_000)
+                        graph_max_nodes=2_000_000, graph_max_edges=10_000_000)
 result = graph.evaluate([0.1], gradients=False)  # gradient is an empty tuple
 print(result.backend, graph.diagnostics, graph.numerics)
 ```

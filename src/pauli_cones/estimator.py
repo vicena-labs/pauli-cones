@@ -11,8 +11,8 @@ carries `error_bounds`, a rigorous bound on |exact - returned|. `noise` adds a
 uniform depolarizing and readout model (see pauli_cones.interop.Noise), which
 Qiskit circuits do not carry.
 
-When every circuit parameter enters its angles as p + b or -p + b and there
-are at most 16 of them, one plan per observable serves every parameter value
+When every circuit parameter enters its angles linearly (k*p + b) and there
+are at most 4096 of them, one plan per observable serves every parameter value
 of the PUB. Otherwise the circuit is rebuilt for each binding.
 """
 from __future__ import annotations

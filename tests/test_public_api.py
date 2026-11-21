@@ -68,7 +68,7 @@ def test_overflow_returns_no_partial_success(backend):
 
 
 @pytest.mark.parametrize('kwargs',[{'n_qubits':True},{'n_qubits':2.0},{'n_qubits':16385},{'n_qubits':0},
-                                  {'n_qubits':1,'n_parameters':17},{'n_qubits':1,'max_terms':True}])
+                                  {'n_qubits':1,'n_parameters':4097},{'n_qubits':1,'max_terms':True}])
 def test_bad_circuit_sizes(kwargs):
     with pytest.raises(ValueError):Circuit(**kwargs)
 

@@ -7,10 +7,10 @@ expectation value. A gate outside the table is decomposed by Qiskit's
 transpiler when Qiskit is installed.
 
 A Qiskit Parameter becomes one shared Pauli Cones parameter when every angle
-it enters is `p + b` or `-p + b`, so one prepared plan serves every value of
-it; `-p` is written as a rotation conjugated by X or Z. A circuit whose
-parameters enter otherwise (for example `2*p`), or has more than 16 of them,
-needs numeric values and is rebuilt for each binding.
+it enters is linear in it, `k*p + b`, so one prepared plan serves every value
+of it. A circuit whose angles combine several parameters or are nonlinear in
+one (for example `p*q` or `sin(p)`), or has more than 4096 parameters, needs
+numeric values and is rebuilt for each binding.
 """
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ ROTATIONS = {"rx", "ry", "rz"}
 # Gates the converter decomposes itself; Qiskit transpiles anything else to these.
 SUPPORTED_GATES = sorted(NATIVE_ONE | ROTATIONS | {
     "id", "sxdg", "s", "sdg", "t", "tdg", "p", "u1", "u2", "u3", "u", "r", "cx", "cy", "cz",
-    "ecr", "swap", "rzz", "rxx", "ryy", "rzx", "cp", "cu1"})
+    "ecr", "swap", "rzz", "rxx", "ryy", "rzx", "cp", "cu1", "crx", "cry", "crz", "ch", "ccx", "cswap"})
 _IGNORED = {"barrier", "delay", "id", "i"}
-MAX_SHARED_PARAMETERS = 16
+MAX_SHARED_PARAMETERS = 4096
 
 
 class ConversionError(ValueError):
@@ -42,6 +42,67 @@ class ConversionError(ValueError):
 
 class _NotShareable(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class Angle:
+    """A linear angle `base + scale * parameter` for circuits built in Python.
+
+    Programs use it where a Qiskit ParameterExpression would go, so generated
+    circuits (Trotter steps, QAOA, ansatze) keep shared parameters through
+    conversion and compilation without needing Qiskit.
+    """
+    parameter: str
+    scale: float = 1.0
+    base: float = 0.0
+
+    def __neg__(self):
+        return Angle(self.parameter, -self.scale, -self.base)
+
+    def __mul__(self, k):
+        return Angle(self.parameter, self.scale * float(k), self.base * float(k))
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, k):
+        return self * (1.0 / float(k))
+
+    def __add__(self, b):
+        return Angle(self.parameter, self.scale, self.base + float(b))
+
+    __radd__ = __add__
+
+
+@dataclass
+class Program:
+    """A circuit as instructions in the converters' gate vocabulary.
+
+    instructions are (gate name, qubits, angles), with angles numbers or
+    Angle objects; parameters lists the parameter names in the order a
+    sequence of values follows. Generators in pauli_cones.hamiltonians and
+    pauli_cones.algorithms return Programs; every entry point that accepts
+    OpenQASM or a Qiskit circuit accepts one.
+    """
+    n_qubits: int
+    instructions: list
+    parameters: list = field(default_factory=list)
+
+    def bind(self, values):
+        """A parameter-free copy with numeric angles, from a mapping or a sequence."""
+        if not isinstance(values, dict):
+            values = dict(zip(self.parameters, values, strict=True))
+        def number(a):
+            return a.base + a.scale * float(values[a.parameter]) if isinstance(a, Angle) else a
+        return Program(self.n_qubits, [(g, q, [number(a) for a in angles]) for g, q, angles in self.instructions])
+
+    def to_qasm(self, values=None):
+        """OpenQASM 2 text; parameters need values, since OpenQASM 2 has none."""
+        program = self.bind(values) if self.parameters else self
+        lines = ['OPENQASM 2.0;', 'include "qelib1.inc";', f"qreg q[{self.n_qubits}];"]
+        for name, qubits, angles in program.instructions:
+            args = f"({','.join(repr(float(a)) for a in angles)})" if angles else ""
+            lines.append(f"{name}{args} " + ",".join(f"q[{q}]" for q in qubits) + ";")
+        return "\n".join(lines) + "\n"
 
 
 @dataclass
@@ -131,6 +192,9 @@ def source_instructions(circuit, values=None):
     Instructions are (name, qubits, parameters) in the converters' gate vocabulary,
     the form the compiler routes before lowering.
     """
+    if isinstance(circuit, Program):
+        program = circuit.bind(values) if values is not None and circuit.parameters else circuit
+        return program.n_qubits, list(program.instructions), list(program.parameters) or None
     if isinstance(circuit, str):
         if re.search(r"OPENQASM\s+3", circuit):
             from qiskit import qasm3
@@ -183,7 +247,7 @@ def _build(n, instructions, noise, max_terms):
 
 
 def _lower(instructions, noise=None):
-    """Native ops (prim, wires, base, parameter index, sign) and the shared parameters.
+    """Native ops (prim, wires, base, parameter index, scale) and the shared parameters.
 
     prim is a native gate name, or "DEPOL" with its probability as base when
     `noise` adds gate errors. The compiler routes these ops before emitting.
@@ -216,18 +280,18 @@ def _lower(instructions, noise=None):
     for prim, wires, angle in ops:
         if prim in ("RX", "RY", "RZ"):
             try:
-                base, source, sign = _angle(angle)
+                base, source, scale = _angle(angle)
             except _NotShareable:
-                raise ConversionError(f"angle {angle} is not p + constant or -p + constant",
+                raise ConversionError(f"angle {angle} is not linear in one parameter (k*p + b)",
                                       "pass numeric values for the parameters (values=...)") from None
             index = -1
             if source is not None:
                 if source not in params:
                     params.append(source)
                 index = params.index(source)
-            resolved.append((prim, wires, base, index, sign))
+            resolved.append((prim, wires, base, index, scale))
         else:
-            resolved.append((prim, wires, angle, -1, 1))
+            resolved.append((prim, wires, angle, -1, 1.0))
     if len(params) > MAX_SHARED_PARAMETERS:
         raise ConversionError(f"{len(params)} parameters exceed the {MAX_SHARED_PARAMETERS} shared parameters",
                               "pass numeric values (values=...); the circuit is then rebuilt for each binding")
@@ -237,19 +301,13 @@ def _lower(instructions, noise=None):
 def _emit(n, ops, params, readout, max_terms):
     """A Pauli Cones Circuit from native ops. "RELAX" ops carry (duration, t1, t2) as base."""
     c = Circuit(n, len(params), max_terms)
-    for prim, wires, base, index, sign in ops:
+    for prim, wires, base, index, scale in ops:
         if prim == "DEPOL":
             c.depolarize(wires, base)
         elif prim == "RELAX":
             c.relax(wires[0], *base)
         elif prim in ("RX", "RY", "RZ"):
-            if sign < 0:
-                # angle = base - p: conjugate so the shift enters with +1:
-                # Z RX(a) Z = RX(-a), Z RY(a) Z = RY(-a), X RZ(a) X = RZ(-a).
-                flip = "X" if prim == "RZ" else "Z"
-                c.gate(flip, wires).gate(prim, wires, -base, index).gate(flip, wires)
-            else:
-                c.gate(prim, wires, base, index)
+            c.gate(prim, wires, base, index, scale if index >= 0 else 1.0)
         else:
             c.gate(prim, wires)
     if readout is not None:
@@ -260,9 +318,11 @@ def _emit(n, ops, params, readout, max_terms):
 
 
 def _angle(value):
-    """(base, parameter or None, sign) of an angle that is numeric or ±p + b."""
+    """(base, parameter or None, scale) of an angle that is numeric or k*p + b."""
     if isinstance(value, (int, float)):
         return float(value), None, 1
+    if isinstance(value, Angle):
+        return value.base, value.parameter, value.scale
     free = getattr(value, "parameters", None)
     if not free:
         return float(value), None, 1
@@ -270,9 +330,9 @@ def _angle(value):
         raise _NotShareable
     (p,) = free
     slope = value.gradient(p)
-    if getattr(slope, "parameters", None) or abs(abs(float(slope)) - 1) > 1e-12:
+    if getattr(slope, "parameters", None) or float(slope) == 0:
         raise _NotShareable
-    return float(value.bind({p: 0.0})), p, 1 if float(slope) > 0 else -1
+    return float(value.bind({p: 0.0})), p, float(slope)
 
 
 def _neg(angle):
@@ -280,7 +340,7 @@ def _neg(angle):
 
 
 def _half(angle):
-    if getattr(angle, "parameters", None):
+    if isinstance(angle, Angle) or getattr(angle, "parameters", None):
         return angle / 2
     return float(angle) / 2
 
@@ -336,6 +396,32 @@ _DECOMPOSE = {
                        + _cx(q[0], q[1]) + [("RZ", [q[1]], _half(a[0]))],
 }
 _DECOMPOSE["cu1"] = _DECOMPOSE["cp"]
+
+
+def _crz(c, t, theta):
+    return [("RZ", [t], _half(theta))] + _cx(c, t) + [("RZ", [t], _neg(_half(theta)))] + _cx(c, t)
+
+
+def _ccx(a, b, t):
+    """Toffoli in six CX and T gates (Nielsen and Chuang, Fig. 4.9)."""
+    T, TD = ("RZ", QUARTER_PI), ("RZ", -QUARTER_PI)
+    def one(gate, q):
+        return [(gate[0], [q], gate[1])]
+    return ([("H", [t], None)] + _cx(b, t) + one(TD, t) + _cx(a, t) + one(T, t) + _cx(b, t) + one(TD, t)
+            + _cx(a, t) + one(T, b) + one(T, t) + [("H", [t], None)] + _cx(a, b) + one(T, a) + one(TD, b)
+            + _cx(a, b))
+
+
+_DECOMPOSE.update({
+    "crz": lambda q, a: _crz(q[0], q[1], a[0]),
+    "crx": lambda q, a: [("H", [q[1]], None)] + _crz(q[0], q[1], a[0]) + [("H", [q[1]], None)],
+    "cry": lambda q, a: [("RY", [q[1]], _half(a[0]))] + _cx(q[0], q[1]) + [("RY", [q[1]], _neg(_half(a[0])))]
+                        + _cx(q[0], q[1]),
+    # CH = RY(pi/4) CZ RY(-pi/4) on the target, up to global phase; applied right to left.
+    "ch": lambda q, a: [("RY", [q[1]], -QUARTER_PI), ("CZ", q, None), ("RY", [q[1]], QUARTER_PI)],
+    "ccx": lambda q, a: _ccx(*q),
+    "cswap": lambda q, a: _cx(q[2], q[1]) + _ccx(q[0], q[1], q[2]) + _cx(q[2], q[1]),
+})
 
 
 # ---------------------------------------------------------------- OpenQASM 2
@@ -620,6 +706,10 @@ def convert(circuit, *, noise=None, max_terms=1_000_000, values=None):
         return Converted(circuit, list(range(circuit.n_parameters)))
     if isinstance(circuit, str):
         return from_qasm(circuit, noise=noise, max_terms=max_terms)
+    if isinstance(circuit, Program):
+        converted = _build(circuit.n_qubits, circuit.instructions, Noise.coerce(noise), max_terms)
+        converted.source_order = list(circuit.parameters)
+        return converted
     try:
         return from_qiskit(circuit, noise=noise, max_terms=max_terms)
     except ConversionError:

@@ -36,7 +36,7 @@ The [MaxCut QAOA example](../examples/qaoa_maxcut.py) shows a simple variational
 An algorithm developer generally:
 
 1. Defines a graph and an ansatz using supported one-/two-qubit gates.
-2. Supplies up to 16 shared angle variables (`Circuit(..., n_parameters=...)`) and one or more weighted Pauli terms as the observable.
+2. Supplies up to 4,096 shared angle variables (`Circuit(..., n_parameters=...)`) and one or more weighted Pauli terms as the observable.
 3. Prepares the circuit once, then evaluates different finite parameter shifts with `evaluate`/`evaluate_many` or `evaluate_values`.
 4. Checks small cases against the `dense` backend or an independent reference.
 5. Profiles full preparation plus evaluation; verifies any claimed speedup at equal accuracy and resources.

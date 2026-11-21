@@ -38,14 +38,20 @@ def _layered(n, layers, max_terms):
     return c
 
 
-def test_router_prefers_exact_and_degrades_visibly():
+def test_router_prefers_exact_and_degrades_visibly(monkeypatch):
+    from pauli_cones import experiments
     obs = [(1.0, {2: "Z"}), (0.5, {1: "X", 2: "X"})]
-    exact = solve(_layered(5, 2, 100_000), obs)
-    assert exact["method"] == "native" and exact["exact"]
-    # A tiny term cap forces the router past native; 5 wires fit the dense backend.
-    small = solve(_layered(5, 4, 4), obs)
-    assert small["method"] == "dense" and small["exact"] and small["reasons"]
-    assert small["value"] == pytest.approx(solve(_layered(5, 4, 100_000), obs)["value"], abs=1e-12)
+    exact = solve(_layered(5, 2, 100_000), obs, cross_check=True)
+    assert exact["method"] == "native" and exact["exact"] and exact["cross_check"]["agrees"]
+    # A tiny term cap forces the router past native; 5 wires fit the state vector.
+    reference = solve(_layered(5, 4, 100_000), obs)["value"]
+    small = solve(_layered(5, 4, 4), obs, gradients=True, cross_check=True)
+    assert small["method"] == "state_vector" and small["exact"] and small["reasons"]
+    assert small["value"] == pytest.approx(reference, abs=1e-12) and small["cross_check"]["method"] == "dense"
+    # Without state simulation, 5 wires fit the dense backend.
+    monkeypatch.setattr(experiments, "ROUTER_STATEVECTOR_QUBITS", 0)
+    dense = solve(_layered(5, 4, 4), obs)
+    assert dense["method"] == "dense" and dense["value"] == pytest.approx(reference, abs=1e-12)
     # Ten wires exceed the dense backend, so the router truncates and reports convergence.
     # Exact needs 131,088 terms here; truncation needs 72,526 (1e-4) and 114,251 (1e-5).
     wide = solve(_layered(10, 7, 120_000), [(1.0, {5: "Z"})])

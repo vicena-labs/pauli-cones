@@ -25,18 +25,19 @@ BACKENDS = {
 
 
 def capabilities():
+    from .contracts import OUTPUTS
     from .interop import SUPPORTED_GATES
     return {
         "version": __version__,
         "computes": "Weighted sums of Pauli expectations <psi|O|psi> of noisy circuits from |0...0>, "
-                    "with exact gradients in up to 16 shared parameters.",
+                    "with exact gradients in up to 4096 shared parameters (an angle may be k*p + b).",
         "inputs": {
             "json_request": "schema_version 1 request; see `pauli-cones schema`",
             "openqasm2": "built in, no dependencies",
             "openqasm3": "needs `pip install qiskit qiskit-qasm3-import`",
             "qiskit": "pauli_cones.interop.from_qiskit and pauli_cones.estimator.Estimator (Qiskit Estimator V2)",
         },
-        "native_gates": ["H", "SX", "X", "Y", "Z", "RX", "RY", "RZ", "CZ", "ECR", "FSIM"],
+        "native_gates": ["H", "SX", "X", "Y", "Z", "RX", "RY", "RZ", "CZ", "ECR", "FSIM", "UNITARY (any fixed 1- or 2-qubit matrix)"],
         "devices": "chip catalogue: `pauli-cones devices`; describe one with `pauli-cones device NAME`; "
                    "apply a chip's noise and check its connectivity with --device on run and plan; "
                    "route onto it and simulate gate errors, idle T1/T2 and readout with --compile, "
@@ -47,14 +48,23 @@ def capabilities():
         "sweeps": "`pauli-cones sweep` compiles and solves over chips, noise scales and sizes, with built-in "
                   "families ghz, hardware-efficient, qaoa-ring and ising-trotter; the solver is chosen per point "
                   "(exact native, exact dense, then truncated with a convergence check)",
+        "algorithms": "`pauli-cones hamiltonian` (models and loaders), `optimize` (VQE or QAOA with exact gradients, "
+                      "Adam, gradient descent, SPSA or L-BFGS, full trace), `zne` (zero-noise extrapolation on a device), "
+                      "`shot-noise` (standard error of a hardware run with N shots)",
+        "states": "`pauli-cones sample` (bitstrings with noise and readout; exact density matrix up to 10 qubits, "
+                  "trajectories up to 28, Stim for larger Clifford circuits) and `statevector` (amplitudes)",
+        "outputs": {"schema": "every result carries schema pauli-cones-<kind>/1 and provenance",
+                    "kinds": OUTPUTS,
+                    "progress": "--progress streams JSON-line events on stderr",
+                    "checkpoint": "sweep --checkpoint FILE resumes from completed points"},
         "converted_gates": SUPPORTED_GATES,
         "other_gates": "transpiled by Qiskit when it is installed",
         "noise": ["DEPOLARIZE (1 or 2 wires)", "PAULI_ERROR", "RELAX (T1/T2)", "readout (p01, p10)",
                   "uniform noise for converted circuits: --noise-1q, --noise-2q, --readout"],
         "observables": 'strings like "0.5*Z0*Z1 - X3" (wire-indexed) or "0.5*IXZ" (Qiskit order, rightmost is '
                        "wire 0), or JSON terms {coefficient, pauli: {wire: axis}}",
-        "limits": {"logical_qubits": 16384, "wires_per_cone": 256, "shared_parameters": 16,
-                   "observable_terms": 1024, "parameter_vectors_per_request": 128,
+        "limits": {"logical_qubits": 16384, "wires_per_cone": 256, "shared_parameters": 4096,
+                   "observable_terms": 65536, "parameter_vectors_per_request": 128,
                    "max_terms_per_cone": "1..1000000; exact mode refuses beyond it instead of approximating"},
         "backends": BACKENDS,
         "truncation": {"flags": "--min-coefficient F (fraction of the observable l1 norm), --max-weight N",
@@ -93,7 +103,7 @@ def schema():
                             "operations": {"type": "array", "maxItems": 10000, "items": operation},
                             "readout": {"type": "array", "items": {"type": "object",
                                         "required": ["wire", "p01", "p10"]}},
-                            "observables": {"type": "array", "minItems": 1, "maxItems": 1024, "items": term}}},
+                            "observables": {"type": "array", "minItems": 1, "maxItems": 65536, "items": term}}},
             {"title": "openqasm", "type": "object", "additionalProperties": False,
              "required": ["schema_version", "qasm", "observables"],
              "properties": {**common, "qasm": {"type": "string"},

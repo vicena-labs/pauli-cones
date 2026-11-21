@@ -60,8 +60,10 @@ def remove_qubits(chip, qubits):
     edges = [(renumber[a], renumber[b]) for a, b in chip.edges if a not in dead and b not in dead]
     errors = {(renumber[a], renumber[b]): e for (a, b), e in chip.coupler_errors.items()
               if a not in dead and b not in dead}
-    out = _rebuild(chip, len(keep), edges, errors, f"{chip.name}-{len(dead)}q")
-    return replace(out, parameters={**out.parameters, "renumbering": {str(k): v for k, v in renumber.items()}})
+    out = _rebuild(chip, len(keep), edges, errors, f"{chip.name}-{len(dead)}q",
+                   coordinates=tuple(chip.coordinates[q] for q in keep) if chip.coordinates else ())
+    return replace(out, parameters={**out.parameters, "renumbering": {str(k): v for k, v in renumber.items()}},
+                   qubit_overrides={renumber[q]: v for q, v in chip.qubit_overrides.items() if q in renumber})
 
 
 def modular(module, modules, *, links="ring", links_per_pair=1, link_error=None, name=None):
@@ -94,8 +96,14 @@ def modular(module, modules, *, links="ring", links_per_pair=1, link_error=None,
             if link_error is not None:
                 errors[(min(a, b), max(a, b))] = link_error
     family = module.family if module.family != "annealer" else "custom"
+    # Modules side by side, two lattice units apart.
+    base = module.positions()
+    width = max(x for x, _ in base) - min(x for x, _ in base) + 2
+    coordinates = tuple((x + m * width, y) for m in range(modules) for x, y in base)
+    overrides = {q + m * n: v for m in range(modules) for q, v in module.qubit_overrides.items()}
     out = replace(module, name=name or f"{module.name}x{modules}-{links}",
                   topology=Topology(n * modules, tuple(edges)), coupler_errors=errors, family=family,
+                  coordinates=coordinates, qubit_overrides=overrides,
                   description=f"{modules} copies of {module.name} joined in a {links} by {links_per_pair} "
                               "link(s) per pair of modules.",
                   parameters={"module": module.name, "modules": modules, "links": links,
@@ -172,8 +180,10 @@ def compare(chips, *, family="qaoa-ring", sizes=(8, 12), noise_scale=1.0, router
     return result
 
 
-def _rebuild(chip, n, edges, errors, name):
+def _rebuild(chip, n, edges, errors, name, coordinates=None):
     return replace(chip, name=name, topology=Topology(n, tuple(edges)), coupler_errors=errors,
+                   coordinates=chip.coordinates if coordinates is None else coordinates,
+                   qubit_overrides={} if n != chip.n_qubits else chip.qubit_overrides,
                    parameters={**chip.parameters, "designed": True})
 
 
@@ -233,7 +243,8 @@ def expand(chip, n_qubits):
         module = replace(chip, name=p["module"], topology=Topology(size, tuple(
             e for e in chip.edges if e[0] < size and e[1] < size)), coupler_errors={
             k: v for k, v in chip.coupler_errors.items() if k[0] < size and k[1] < size},
-            qubit_overrides={q: v for q, v in chip.qubit_overrides.items() if q < size}, parameters={})
+            qubit_overrides={q: v for q, v in chip.qubit_overrides.items() if q < size}, parameters={},
+            coordinates=chip.coordinates[:size])
         out = modular(module, -(-n_qubits // size), links=p["links"], links_per_pair=p["links_per_pair"],
                       link_error=p["link_error"])
     else:

@@ -43,7 +43,7 @@ class ConeGroups:
         self.threads = int(threads)
         self.truncate_below = float(truncate_below)
         self.max_weight = int(max_weight)
-        lipschitz = [_LIPSCHITZ.get(s.name, 0.) if s.param >= 0 else 0. for s in circuit.stages]
+        lipschitz = [_LIPSCHITZ.get(s.name, 0.) * abs(s.scale) if s.param >= 0 else 0. for s in circuit.stages]
         self.lipschitz = (ct.c_double * max(1, len(lipschitz)))(*lipschitz)
         # |exact value| <= observable l1 norm (readout only shrinks it), and
         # |d exact / d theta_j| <= norm * sum of that parameter's stage bounds.
@@ -214,13 +214,31 @@ class IndexedBatchPrepared(ConeGroups):
         self.preparation_mode = 'single_reverse_bitset_pass_grouped_cones'
 
     def evaluate(self, *, include_stats=False, with_gradients=True):
-        width = self.c.nparams + 1 if with_gradients else 1
+        out, passes = self.full.in_chunks(lambda n: self._run(n, with_gradients), with_gradients)
+        value, gradient = float(out[0]), np.array(out[1:] if with_gradients else [])
+        if not include_stats:
+            return value, gradient
+        first = passes[0]
+        facts = {'max_single_cone_terms': max(int(s.peak_terms) for s in passes), 'observables': len(self.cones),
+                 'cone_groups': len(self.groups),
+                 'max_cone_qubits': max((len(c.wires) for c in self.cones), default=0)}
+        if len(passes) > 1:
+            facts['gradient_passes'] = len(passes)
+        if self.truncating:
+            bounds = [b for s in passes for b in list(s.gradient_bound)[:16]][:self.c.nparams]
+            facts.update(self._bound_facts(value, gradient, first.value_bound,
+                                           bounds if with_gradients else None, first.truncated_terms))
+        return value, gradient, facts
+
+    def _run(self, nparams, with_gradients):
+        """One native call over every group with `nparams` derivatives."""
+        width = nparams + 1 if with_gradients else 1
         out = (ct.c_double * width)()
         stats = CBatchStats()
         while True:
             codes = (ct.c_int32 * max(1, len(self.groups)))()
             code = library().run_pauli_batch(
-                self.c.nparams, self.full.stages, len(self.full.stages), self.lipschitz,
+                nparams, self.full.stages, len(self.full.stages), self.lipschitz,
                 len(self.groups), self._groups, 0, self.c.max_terms,
                 self.truncate_below, self.max_weight, int(with_gradients), self.threads,
                 out, ct.byref(stats), codes)
@@ -233,17 +251,7 @@ class IndexedBatchPrepared(ConeGroups):
             raise ConeOverflow(f'exact cone of observable index {failed[0]} exceeds cap {self.c.max_terms}')
         if code:
             raise RuntimeError(f'exact cone {failed[0] if failed else "?"} status {code}')
-        value, gradient = float(out[0]), np.array(out[1:width])
-        if not include_stats:
-            return value, gradient
-        facts = {'max_single_cone_terms': int(stats.peak_terms), 'observables': len(self.cones),
-                 'cone_groups': len(self.groups),
-                 'max_cone_qubits': max((len(c.wires) for c in self.cones), default=0)}
-        if self.truncating:
-            facts.update(self._bound_facts(value, gradient, stats.value_bound,
-                                           stats.gradient_bound if with_gradients else None,
-                                           stats.truncated_terms))
-        return value, gradient, facts
+        return list(out), stats
 
 
 def _renumber(mask, local):

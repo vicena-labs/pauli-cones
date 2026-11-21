@@ -35,6 +35,9 @@ _STAGE_DTYPE = np.dtype([('q0','<i4'),('q1','<i4'),('arity','<i4'),('param','<i4
                          ('ptm','<f8',(256,)),('dptm','<f8',(256,))])
 assert _STAGE_DTYPE.itemsize == ct.sizeof(CStage)
 
+# The native kernel carries at most this many derivatives per pass.
+CHUNK = 16
+
 # Rotation PTMs in I, X, Z, Y order: the two moving rows/columns and the sign
 # of the sine term, matching _reference.cached_gate_ptm.
 _ROTATIONS = {'RX': (2, 3, 1.), 'RY': (1, 2, 1.), 'RZ': (1, 3, -1.)}
@@ -86,6 +89,7 @@ class NativePrepared:
         view = np.frombuffer(self.stages, dtype=_STAGE_DTYPE) if circuit.stages else None
         self._ptm = view['ptm'] if view is not None else None
         self._dptm = view['dptm'] if view is not None else None
+        self.params = view['param'] if view is not None else np.zeros(0, dtype=np.int32)
         # Each parameterised rotation is rewritten in four PTM and four
         # derivative entries; everything else in its PTM is fixed.
         self._rotations = []
@@ -95,6 +99,7 @@ class NativePrepared:
                 self._rotations.append((
                     np.array(chosen), np.array([circuit.stages[i].param for i in chosen]),
                     np.array([circuit.stages[i].angle for i in chosen], dtype=float),
+                    np.array([circuit.stages[i].scale for i in chosen], dtype=float),
                     first * 5, second * 5, first * 4 + second, second * 4 + first, sign))
         self._other = [i for i, s in enumerate(circuit.stages)
                        if s.param >= 0 and s.name not in _ROTATIONS]
@@ -108,27 +113,59 @@ class NativePrepared:
         if len(deltas)!=self.c.nparams or not all(math.isfinite(x) for x in deltas):
             raise ValueError('invalid shared-parameter vector')
         shifts = np.asarray(deltas, dtype=float)
-        for index, param, base, aa, bb, ab, ba, sign in self._rotations:
-            theta = base + shifts[param]
+        for index, param, base, scale, aa, bb, ab, ba, sign in self._rotations:
+            theta = base + scale * shifts[param]
             c, s = np.cos(theta), np.sin(theta)
             self._ptm[index, aa] = c
             self._ptm[index, bb] = c
             self._ptm[index, ab] = sign * s
             self._ptm[index, ba] = -sign * s
-            self._dptm[index, aa] = -s
-            self._dptm[index, bb] = -s
-            self._dptm[index, ab] = sign * c
-            self._dptm[index, ba] = -sign * c
+            # Chain rule: d/dshift = scale * d/dtheta.
+            sc, cc = scale * s, scale * c
+            self._dptm[index, aa] = -sc
+            self._dptm[index, bb] = -sc
+            self._dptm[index, ab] = sign * cc
+            self._dptm[index, ba] = -sign * cc
         from ._reference import transfer, fsim
         for i in self._other:
             s = self.c.stages[i]
             if s.name != 'FSIM':
                 raise ValueError('unsupported parameter rebind')
-            u, du, _ = fsim(s.angle + float(deltas[s.param]), s.phi)
+            u, du, _ = fsim(s.angle + s.scale * float(deltas[s.param]), s.phi)
             t, dt = transfer(u, du)
             self._ptm[i, :t.size] = t.ravel()
-            self._dptm[i, :dt.size] = dt.ravel()
+            self._dptm[i, :dt.size] = s.scale * dt.ravel()
         return self
+
+    def in_chunks(self, run, with_gradients=True):
+        """Value and full gradient from kernels that carry at most 16 derivatives.
+
+        run(n) evaluates with stage parameters renumbered to 0..n-1 and returns
+        (out, extra) where out is [value, d_0 .. d_{n-1}]. Gradients come in
+        passes of 16 parameters over the same bound PTMs: the stages of other
+        parameters keep their bound matrices and act as fixed gates. Returns the
+        value and extra of the first pass, and the concatenated gradient and
+        each pass's extra.
+        """
+        n = self.c.nparams
+        if n <= CHUNK:
+            out, extra = run(n)
+            return out, [extra]
+        original = self.params.copy()
+        values, extras = None, []
+        try:
+            # A value alone needs one pass with every parameterised stage fixed.
+            for start in range(0, n, CHUNK) if with_gradients else [n]:
+                width = min(CHUNK, n - start)
+                inside = (original >= start) & (original < start + width)
+                self.params[:] = np.where(inside, original - start, -1)
+                out, extra = run(width)
+                extras.append(extra)
+                values = [out[0]] if values is None else values
+                values.extend(out[1:1 + width] if with_gradients else [])
+        finally:
+            self.params[:] = original
+        return values, extras
 
     def evaluate(self,observables,initial='zero',include_stats=False, *, gradients=True):
         if initial not in ('zero','plus'):
@@ -140,13 +177,18 @@ class NativePrepared:
                 t[j].x[i]=(x>>(64*i))&((1<<64)-1)
                 t[j].z[i]=(z>>(64*i))&((1<<64)-1)
             t[j].coef=float(coef[0])
-        res=(ct.c_double*(self.c.nparams+1 if gradients else 1))()
-        stats=CStats()
-        run = library().run_pauli if gradients else library().run_pauli_value
-        code=run(self.c.nqubits,self.c.nparams,len(self.stages),self.stages,
-                                 len(t),t,0 if initial=='zero' else 1,self.c.max_terms,res,ct.byref(stats))
-        if code==-1:raise ConeOverflow(f'native exact Pauli expansion exceeds {self.c.max_terms} terms')
-        if code:raise RuntimeError(f'native evaluation failed with code {code}')
+        kernel = library().run_pauli if gradients else library().run_pauli_value
+        def run(n):
+            res=(ct.c_double*(n+1 if gradients else 1))()
+            stats=CStats()
+            code=kernel(self.c.nqubits,n,len(self.stages),self.stages,
+                        len(t),t,0 if initial=='zero' else 1,self.c.max_terms,res,ct.byref(stats))
+            if code==-1:raise ConeOverflow(f'native exact Pauli expansion exceeds {self.c.max_terms} terms')
+            if code:raise RuntimeError(f'native evaluation failed with code {code}')
+            return list(res), stats
+        res, extras = self.in_chunks(run, gradients)
+        stats = extras[0]
+        res = np.asarray(res, dtype=float)
         if include_stats:
             return float(res[0]),np.array(list(res)[1:]),{'max_terms':int(stats.peak_terms),
                      'final_terms':int(stats.final_terms),'stages':len(self.stages)}

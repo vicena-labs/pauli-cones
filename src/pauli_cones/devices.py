@@ -64,6 +64,7 @@ class Device:
     coupler_errors: dict = field(default_factory=dict)  # (a, b) -> two-qubit infidelity, overriding error_2q
     qubit_overrides: dict = field(default_factory=dict)  # q -> {error_1q, readout, t1, t2}, overriding the chip's
     crosstalk: dict = field(default_factory=dict)        # {"spectator_error": r, "zz_hz": zeta}
+    coordinates: tuple = ()  # (x, y) of each qubit in lattice units, for drawing the chip; () when unknown
 
     def __post_init__(self):
         if self.family not in FAMILIES:
@@ -125,6 +126,16 @@ class Device:
         if not 0 <= crosstalk.get("spectator_error", 0.) < 1 or not math.isfinite(crosstalk.get("zz_hz", 0.)):
             raise ValueError("crosstalk spectator_error must be in [0, 1) and zz_hz finite")
         object.__setattr__(self, "crosstalk", {k: float(v) for k, v in crosstalk.items() if v})
+        coordinates = tuple((float(x), float(y)) for x, y in (self.coordinates or ()))
+        if coordinates and len(coordinates) != self.topology.n_qubits:
+            raise ValueError("coordinates need one (x, y) per qubit")
+        if not all(math.isfinite(v) for xy in coordinates for v in xy):
+            raise ValueError("coordinates must be finite")
+        object.__setattr__(self, "coordinates", coordinates)
+
+    def positions(self):
+        """(x, y) of every qubit: the chip's own coordinates, else a deterministic force-directed layout."""
+        return list(self.coordinates) if self.coordinates else spring_layout(self.n_qubits, self.edges)
 
     def qubit(self, q, key):
         """A qubit's error_1q, readout, t1 or t2: its own value, else the chip's."""
@@ -269,14 +280,15 @@ class Device:
                 **({"qubit_overrides": [{"qubit": q, **{k: list(v) if k == "readout" else v for k, v in values.items()}}
                                         for q, values in sorted(self.qubit_overrides.items())]}
                    if self.qubit_overrides else {}),
-                **({"crosstalk": dict(self.crosstalk)} if self.crosstalk else {})}
+                **({"crosstalk": dict(self.crosstalk)} if self.crosstalk else {}),
+                **({"coordinates": [list(xy) for xy in self.coordinates]} if self.coordinates else {})}
 
     @classmethod
     def from_dict(cls, data):
         """A Device from to_dict() output or a hand-written chip description."""
         known = {"schema", "name", "family", "n_qubits", "edges", "native_gates", "error_1q", "error_2q",
                  "readout", "t1", "t2", "time_1q", "time_2q", "description", "source", "parameters",
-                 "coupler_errors", "qubit_overrides", "crosstalk"}
+                 "coupler_errors", "qubit_overrides", "crosstalk", "coordinates"}
         unknown = set(data) - known
         if unknown:
             raise ValueError(f"unknown device fields {sorted(unknown)}")
@@ -296,7 +308,8 @@ class Device:
                    coupler_errors={(int(a), int(b)): float(e) for a, b, e in data.get("coupler_errors", [])},
                    qubit_overrides={int(item["qubit"]): {k: v for k, v in item.items() if k != "qubit"}
                                     for item in data.get("qubit_overrides", [])},
-                   crosstalk=data.get("crosstalk", {}))
+                   crosstalk=data.get("crosstalk", {}),
+                   coordinates=tuple(tuple(xy) for xy in data.get("coordinates", [])))
 
     def to_json(self, path=None):
         text = json.dumps(self.to_dict(), indent=1)
@@ -327,20 +340,24 @@ def _heavy_hex_edges(rows, row_length):
             bridges.append([(c, n + i) for i, c in enumerate(offsets)])
             n += len(offsets)
     edges = []
-    for line in lines:
+    coordinates = [None] * n
+    for r, line in enumerate(lines):
         cols = sorted(line)
         edges += [(line[a], line[b]) for a, b in zip(cols, cols[1:])]
+        for c, q in line.items():
+            coordinates[q] = (c, 2 * r)
     for r, row_bridges in enumerate(bridges):
         for c, q in row_bridges:
             if c not in lines[r] or c not in lines[r + 1]:
                 raise ValueError("bridge column falls outside a trimmed row; use an odd number of rows and row_length = 4k + 3")
             edges += [(lines[r][c], q), (q, lines[r + 1][c])]
-    return n, edges
+            coordinates[q] = (c, 2 * r + 1)
+    return n, edges, coordinates
 
 
 def _grid_edges(rows, columns):
     t = Topology.grid(rows, columns)
-    return t.n_qubits, list(t.edges)
+    return t.n_qubits, list(t.edges), [(c, r) for r in range(rows) for c in range(columns)]
 
 
 def _radius_edges(rows, columns, radius):
@@ -355,7 +372,7 @@ def _radius_edges(rows, columns, radius):
                     rr, cc = r + dr, c + dc
                     if 0 <= rr < rows and 0 <= cc < columns:
                         edges.append((r * columns + c, rr * columns + cc))
-    return rows * columns, edges
+    return rows * columns, edges, [(c, r) for r in range(rows) for c in range(columns)]
 
 
 def _chimera_edges(m, n, t):
@@ -371,7 +388,14 @@ def _chimera_edges(m, n, t):
                     edges.append((index(i, j, 0, k), index(i + 1, j, 0, k)))  # vertical qubits chain down
                 if j + 1 < n:
                     edges.append((index(i, j, 1, k), index(i, j + 1, 1, k)))  # horizontal qubits chain right
-    return 2 * m * n * t, edges
+    # Each cell draws its vertical qubits as a column and its horizontal qubits as a row.
+    coordinates = [None] * (2 * m * n * t)
+    for i in range(m):
+        for j in range(n):
+            for k in range(t):
+                coordinates[index(i, j, 0, k)] = (j * (t + 2) + t, i * (t + 2) + k)
+                coordinates[index(i, j, 1, k)] = (j * (t + 2) + k, i * (t + 2) + t)
+    return 2 * m * n * t, edges, coordinates
 
 
 def _dwave_graph(kind, size, t):
@@ -382,13 +406,49 @@ def _dwave_graph(kind, size, t):
         raise ConversionError(f"the {kind} layout needs dwave-networkx", "pip install dwave-networkx") from exc
     graph = dnx.pegasus_graph(size) if kind == "pegasus" else dnx.zephyr_graph(size, t)
     label = {node: i for i, node in enumerate(sorted(graph.nodes))}
-    return len(label), [(label[a], label[b]) for a, b in graph.edges]
+    layout = (dnx.pegasus_layout if kind == "pegasus" else dnx.zephyr_layout)(graph, scale=len(label) ** 0.5)
+    coordinates = [None] * len(label)
+    for node, i in label.items():
+        x, y = layout[node]
+        coordinates[i] = (round(float(x), 6), round(float(-y), 6))
+    return len(label), [(label[a], label[b]) for a, b in graph.edges], coordinates
 
 
 def _device(name, family, size_edges, gates, noise, description, parameters, source=ILLUSTRATIVE):
-    n, edges = size_edges
+    n, edges, coordinates = size_edges
     return Device(name=name, family=family, topology=Topology(n, tuple(edges)), native_gates=gates,
-                  description=description, source=source, parameters=parameters, **noise)
+                  description=description, source=source, parameters=parameters,
+                  coordinates=tuple(coordinates), **noise)
+
+
+def spring_layout(n, edges, iterations=200, seed=0):
+    """A deterministic Fruchterman-Reingold layout, scaled so neighbours sit about one unit apart."""
+    import numpy as np
+    if n == 1:
+        return [(0.0, 0.0)]
+    rng = np.random.default_rng(seed)
+    angle = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    pos = np.c_[np.cos(angle), np.sin(angle)] * math.sqrt(n) + rng.normal(scale=0.01, size=(n, 2))
+    if n <= 2000:
+        a = np.array(edges, dtype=int).reshape(-1, 2)
+        k, temperature = 1.0, math.sqrt(n)
+        for _ in range(iterations):
+            delta = pos[:, None, :] - pos[None, :, :]
+            distance = np.maximum(np.linalg.norm(delta, axis=2), 1e-9)
+            force = (delta / distance[..., None] * (k * k / distance)[..., None]).sum(axis=1)
+            if len(a):
+                pull = pos[a[:, 0]] - pos[a[:, 1]]
+                length = np.maximum(np.linalg.norm(pull, axis=1), 1e-9)[:, None]
+                attraction = pull * length / k
+                np.add.at(force, a[:, 0], -attraction)
+                np.add.at(force, a[:, 1], attraction)
+            step = np.linalg.norm(force, axis=1, keepdims=True)
+            pos += force / np.maximum(step, 1e-9) * np.minimum(step, temperature)
+            temperature *= 0.97
+        if len(a):
+            pos /= np.median(np.linalg.norm(pos[a[:, 0]] - pos[a[:, 1]], axis=1))
+    pos -= pos.min(axis=0)
+    return [(round(float(x), 4), round(float(y), 4)) for x, y in pos]
 
 
 SC_GATES = {"one_qubit": ["rz", "sx", "x"], "two_qubit": ["cz"]}
@@ -411,11 +471,13 @@ CATALOG = {
         {"rows": rows, "columns": columns}),
         {"rows": 8, "columns": 8}, "Square-lattice superconducting chip, nearest-neighbour couplers"),
     "line": (lambda n=16: _device(
-        f"line-{n}", "superconducting", (n, [(i, i + 1) for i in range(n - 1)]), SC_GATES, SUPERCONDUCTING,
+        f"line-{n}", "superconducting", (n, [(i, i + 1) for i in range(n - 1)], [(i, 0) for i in range(n)]),
+        SC_GATES, SUPERCONDUCTING,
         "Linear chain of qubits with nearest-neighbour couplers.", {"n": n}),
         {"n": 16}, "Linear chain"),
     "all-to-all-ions": (lambda n=32: _device(
-        f"all-to-all-ions-{n}", "trapped-ion", (n, [(a, b) for a in range(n) for b in range(a + 1, n)]),
+        f"all-to-all-ions-{n}", "trapped-ion",
+        (n, [(a, b) for a in range(n) for b in range(a + 1, n)], [(i, 0) for i in range(n)]),  # ions sit in a line
         {"one_qubit": ["rz", "rx", "ry"], "two_qubit": ["rxx"]}, TRAPPED_ION,
         "Trapped-ion chip with all-to-all connectivity (IonQ- and Quantinuum-style); native "
         "Molmer-Sorensen (RXX) gate.", {"n": n}),

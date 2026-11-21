@@ -10,8 +10,16 @@ error.type, error.message and error.hint with a concrete next step.
     pauli-cones compare CHIP CHIP ... --family qaoa-ring --sizes 8,12   # rank chip designs
     pauli-cones plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
     pauli-cones run   INPUT [--observable EXPR] [options]
+    pauli-cones hamiltonian --model heisenberg --lattice grid --size 3,3 [--out h.json]
+    pauli-cones optimize --algorithm vqe|qaoa --hamiltonian h.json [--device NAME] [--progress]
+    pauli-cones sample INPUT --shots 1000 [--device NAME]  # bitstrings, noise and readout included
+    pauli-cones statevector INPUT                        # amplitudes of a noise-free circuit
+    pauli-cones zne INPUT --observable EXPR --device NAME   # zero-noise extrapolation
+    pauli-cones shot-noise INPUT --observable EXPR --shots 10000   # statistical error of a hardware run
 
 INPUT is a JSON request, an OpenQASM file (.qasm), or - for standard input.
+Every result carries `schema` (pauli-cones-<kind>/1) and `provenance`; --progress
+streams JSON-line progress events on standard error.
 """
 from __future__ import annotations
 import argparse
@@ -75,6 +83,9 @@ def main(argv=None):
         cmd.add_argument('--noise-scale', type=float, default=1.0, help='Multiply every device error (noise sweeps)')
         cmd.add_argument('--no-idle-noise', action='store_true', help='Skip T1/T2 relaxation of idle qubits')
         cmd.add_argument('--timeout', type=float, default=60.0, help='Worker wall deadline in seconds')
+        if name == 'compile':
+            cmd.add_argument('--schedule', action='store_true',
+                             help='Include every gate with its physical qubits, start time and duration')
         if name == 'run':
             cmd.add_argument('--backend', choices=('native', 'python', 'graph', 'dense', 'auto'), default='native')
             cmd.add_argument('--value-only', action='store_true', help='Skip gradients')
@@ -98,6 +109,9 @@ def main(argv=None):
     sw.add_argument('--no-idle-noise', action='store_true')
     sw.add_argument('--format', choices=('json', 'markdown', 'csv'), default='json')
     sw.add_argument('--timeout', type=float, default=600.0, help='Worker wall deadline in seconds')
+    sw.add_argument('--progress', action='store_true', help='Stream one JSON-line event per point on stderr')
+    sw.add_argument('--checkpoint', help='JSON-lines file of completed points; rerunning resumes from it')
+    _task_commands(sub)
     ds = sub.add_parser('design', help='Build a chip description: base layout, modules, defects, couplers, physics')
     ds.add_argument('--base', required=True, help='Catalogue name, "name:k=v,k=v", or a device .json file')
     ds.add_argument('--name', help='Name of the new chip')
@@ -130,6 +144,8 @@ def main(argv=None):
     cp.add_argument('--format', choices=('json', 'markdown', 'csv'), default='json')
     cp.add_argument('--timeout', type=float, default=600.0)
     args = p.parse_args(argv)
+    if args.command in TASK_COMMANDS:
+        return _task(args)
     if args.command == 'sweep':
         return _sweep(args)
     if args.command == 'design':
@@ -174,7 +190,7 @@ def main(argv=None):
         if _is_qasm(args.input, raw):
             raw = _qasm_request(raw, args)
         mode = args.command if args.command in ('plan', 'compile') else ('value' if args.value_only else 'request')
-        options = {'threads': getattr(args, 'threads', 1)}
+        options = {'threads': getattr(args, 'threads', 1), 'schedule': getattr(args, 'schedule', False)}
         if getattr(args, 'min_coefficient', None) is not None or getattr(args, 'max_weight', None) is not None:
             options['truncation'] = {'min_coefficient': args.min_coefficient or 0., 'max_weight': args.max_weight}
         env = dict(os.environ)
@@ -235,15 +251,16 @@ def _sweep(args):
         if not args.observable:
             return emit_error('UsageError', 'an OpenQASM sweep needs --observable', hint='Add e.g. --observable "Z0".')
         spec['circuit'] = _read(args.input).decode('utf-8')
+    if args.checkpoint:
+        spec['checkpoint'] = str(Path(args.checkpoint).resolve())
     try:
-        child = subprocess.run([sys.executable, '-m', 'pauli_cones._worker', 'native', 'sweep', '{}'],
-                               input=json.dumps({'sweep': spec}).encode(), capture_output=True, timeout=args.timeout)
+        code, output = _worker('sweep', {'sweep': spec}, args.timeout, progress=args.progress)
     except subprocess.TimeoutExpired:
         return emit_error('Timeout', 'sweep exceeded its deadline', 124,
-                          hint='Raise --timeout, or sweep fewer sizes, chips or noise scales.')
-    output = json.loads(child.stdout)
+                          hint='Raise --timeout, or sweep fewer sizes, chips or noise scales; with --checkpoint '
+                               'a rerun resumes where it stopped.')
     if not output.get('ok'):
-        print(json.dumps(output)); return child.returncode or 2
+        print(json.dumps(output)); return code or 2
     if args.format == 'json':
         print(json.dumps(output, allow_nan=False, separators=(',', ':')))
     else:
@@ -251,6 +268,155 @@ def _sweep(args):
         table = SweepResult(output['rows'])
         print(table.markdown() if args.format == 'markdown' else table.csv(), end='\n')
     return 0
+
+
+def _worker(mode, payload, timeout, options=None, progress=False):
+    """Run one worker task; relay its progress events from stderr while it runs. Returns (code, output)."""
+    import threading
+    child = subprocess.Popen([sys.executable, '-m', 'pauli_cones._worker', 'native', mode,
+                              json.dumps({**(options or {}), 'progress': progress})],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    collected = []
+
+    def pump_stdout():
+        collected.append(child.stdout.read())
+
+    def pump_stderr():
+        for line in child.stderr:
+            if progress:
+                sys.stderr.buffer.write(line)
+                sys.stderr.flush()
+    readers = [threading.Thread(target=pump_stdout, daemon=True), threading.Thread(target=pump_stderr, daemon=True)]
+    for reader in readers:
+        reader.start()
+    child.stdin.write(json.dumps(payload).encode())
+    child.stdin.close()
+    try:
+        child.wait(timeout)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        raise
+    for reader in readers:
+        reader.join()
+    return child.returncode, json.loads(collected[0])
+
+
+TASK_COMMANDS = ('hamiltonian', 'optimize', 'sample', 'statevector', 'zne', 'shot-noise')
+
+
+def _task_commands(sub):
+    """Subcommands that run one JSON task (pauli_cones.tasks) in the worker."""
+    def hamiltonian_flags(cmd, required=False):
+        cmd.add_argument('--hamiltonian', help='A Hamiltonian .json file or a Pauli sum such as "Z0*Z1 + 0.5*X0"')
+        cmd.add_argument('--model', help='transverse-field-ising, heisenberg, maxcut or fermi-hubbard')
+        cmd.add_argument('--lattice', default='chain', help='chain, grid or regular (random regular graph)')
+        cmd.add_argument('--size', default='8', help='chain: n; grid: rows,columns; regular: n,degree')
+        cmd.add_argument('--periodic', action='store_true')
+        cmd.add_argument('--model-param', action='append', default=[], help='e.g. j=1.0, h=0.5, u=4')
+        cmd.add_argument('--model-seed', type=int, default=0, help='Seed of a random regular graph')
+
+    def circuit_flags(cmd):
+        cmd.add_argument('input', help='OpenQASM file, or - for standard input')
+        cmd.add_argument('--values', help='Parameter values as a JSON list or {"name": value}')
+
+    def device_flags(cmd, required=False):
+        cmd.add_argument('--device', required=required, help='Catalogue name, "name:k=v,k=v" or a device .json file')
+        cmd.add_argument('--noise-scale', type=float, default=1.0)
+        cmd.add_argument('--router', choices=('greedy', 'sabre'), default='greedy')
+
+    def common(cmd, timeout=600.0):
+        cmd.add_argument('--seed', type=int, help='Random seed (sampling, initial parameters, simulated measurement)')
+        cmd.add_argument('--timeout', type=float, default=timeout, help='Worker wall deadline in seconds')
+        cmd.add_argument('--progress', action='store_true', help='Stream JSON-line progress events on stderr')
+
+    h = sub.add_parser('hamiltonian', help='Build or load a Hamiltonian: terms, summary, exact ground energy when small')
+    hamiltonian_flags(h)
+    h.add_argument('--out', help='Write the Hamiltonian JSON to this file')
+    common(h, 120.0)
+    o = sub.add_parser('optimize', help='VQE or QAOA with exact gradients; prints the full optimisation trace')
+    hamiltonian_flags(o)
+    o.add_argument('--algorithm', choices=('vqe', 'qaoa'), default='vqe')
+    o.add_argument('--layers', type=int, default=2, help='VQE: hardware-efficient ansatz layers')
+    o.add_argument('--entangler', choices=('cz', 'cx'), default='cz')
+    o.add_argument('--depth', type=int, default=1, help='QAOA depth p')
+    o.add_argument('--method', choices=('adam', 'gd', 'spsa', 'lbfgs'), default='adam')
+    o.add_argument('--steps', type=int, default=200)
+    o.add_argument('--learning-rate', type=float, default=0.05)
+    o.add_argument('--keep-parameters', action='store_true', help='Record the parameters of every iteration')
+    o.add_argument('--shots', type=int, default=1024, help='QAOA: bitstrings sampled at the optimum')
+    device_flags(o)
+    common(o)
+    sa = sub.add_parser('sample', help='Measured bitstrings with noise and readout errors (wire 0 rightmost)')
+    circuit_flags(sa)
+    sa.add_argument('--shots', type=int, default=1024)
+    sa.add_argument('--method', choices=('auto', 'statevector', 'density_matrix', 'trajectories', 'stim'), default='auto')
+    device_flags(sa)
+    common(sa)
+    sv = sub.add_parser('statevector', help='Amplitudes of a noise-free circuit (up to 16 qubits printed)')
+    circuit_flags(sv)
+    sv.add_argument('--top', type=int, default=16, help='How many of the most likely bitstrings to list')
+    common(sv, 120.0)
+    z = sub.add_parser('zne', help='Zero-noise extrapolation on a device: amplified noise, fitted back to zero')
+    circuit_flags(z)
+    z.add_argument('--observable', required=True)
+    z.add_argument('--scales', default='1,1.5,2,3', help='Noise amplification factors')
+    z.add_argument('--fit', choices=('linear', 'quadratic', 'richardson', 'exponential'), default='richardson')
+    device_flags(z, required=True)
+    common(z)
+    sn = sub.add_parser('shot-noise', help='Standard error of a hardware estimate with a given number of shots')
+    circuit_flags(sn)
+    sn.add_argument('--observable', required=True, help='A Pauli sum, or a Hamiltonian .json file')
+    sn.add_argument('--shots', type=int, default=10_000)
+    sn.add_argument('--allocation', choices=('weighted', 'equal'), default='weighted')
+    common(sn)
+
+
+def _task(args):
+    """Build a task specification from the flags, run it in the worker and print the result."""
+    try:
+        spec = {'kind': args.command, 'seed': args.seed}
+        if args.command in ('hamiltonian', 'optimize'):
+            spec['hamiltonian'] = _hamiltonian_spec(args)
+        if hasattr(args, 'input'):
+            spec['circuit'] = _read(args.input).decode('utf-8')
+            if args.values:
+                spec['values'] = json.loads(args.values)
+        if getattr(args, 'device', None):
+            spec.update(device=_chip(args.device).to_dict(), noise_scale=args.noise_scale, router=args.router)
+        if args.command == 'optimize':
+            spec.update(algorithm=args.algorithm, method=args.method, steps=args.steps, depth=args.depth,
+                        learning_rate=args.learning_rate, shots=args.shots, keep_parameters=args.keep_parameters,
+                        ansatz={'layers': args.layers, 'entangler': args.entangler}, seed=args.seed or 0)
+        elif args.command == 'sample':
+            spec.update(shots=args.shots, method=args.method)
+        elif args.command == 'statevector':
+            spec['top'] = args.top
+        elif args.command == 'zne':
+            spec.update(observable=args.observable, scales=[float(x) for x in args.scales.split(',')], fit=args.fit)
+        elif args.command == 'shot-noise':
+            spec.update(observable=args.observable, shots=args.shots, allocation=args.allocation)
+    except (KeyError, ValueError, OSError) as exc:
+        return emit_error(type(exc).__name__, str(exc).strip('"'), hint=f'See `pauli-cones {args.command} --help`.')
+    try:
+        code, output = _worker('task', {'task': spec}, args.timeout, progress=args.progress)
+    except subprocess.TimeoutExpired:
+        return emit_error('Timeout', f'{args.command} exceeded its deadline', 124,
+                          hint='Raise --timeout, or reduce the size, steps or shots.')
+    if output.get('ok') and args.command == 'hamiltonian' and getattr(args, 'out', None):
+        Path(args.out).write_text(json.dumps(output['hamiltonian'], indent=1))
+        output['written_to'] = args.out
+    print(json.dumps(output, allow_nan=False, separators=(',', ':')))
+    return code if not output.get('ok') else 0
+
+
+def _hamiltonian_spec(args):
+    if args.hamiltonian:
+        path = Path(args.hamiltonian)
+        return json.loads(path.read_text()) if path.suffix == '.json' and path.exists() else args.hamiltonian
+    if not args.model:
+        raise ValueError('give --hamiltonian FILE|EXPR or --model NAME')
+    return {'model': args.model, 'lattice': args.lattice, 'size': [int(x) for x in args.size.split(',')],
+            'periodic': args.periodic, 'parameters': _params(args.model_param), 'seed': args.model_seed}
 
 
 def _chip(spec):
@@ -383,7 +549,9 @@ def _qasm_request(raw, args):
     if args.device:
         from . import devices
         try:
-            request['device'] = devices.get(args.device, **_params(args.device_param)).to_dict()
+            chip = (_chip(args.device) if ':' in args.device or args.device.endswith('.json')
+                    else devices.get(args.device, **_params(args.device_param)))
+            request['device'] = chip.to_dict()
         except (KeyError, ValueError, OSError) as exc:
             raise _UsageError(str(exc).strip('"'), 'Run `pauli-cones devices` for catalogue names and parameters.')
     if args.values:

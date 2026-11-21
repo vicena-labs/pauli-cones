@@ -83,12 +83,15 @@ def test_shared_parameters_including_negative_slopes_give_values_and_gradients()
 
 
 def test_unshareable_parameters_need_values_and_then_bind():
-    a = Parameter("a")
-    qc = QuantumCircuit(1); qc.ry(2 * a, 0)
+    a, b = Parameter("a"), Parameter("b")
+    qc = QuantumCircuit(1); qc.ry(a * b, 0)
     with pytest.raises(ConversionError) as info:
         expectation(qc, "Z0")
     assert "values" in info.value.hint
-    assert expectation(qc, "Z0", values=[0.3]).value == pytest.approx(math.cos(0.6), abs=1e-14)
+    assert expectation(qc, "Z0", values=[0.3, 2.0]).value == pytest.approx(math.cos(0.6), abs=1e-14)
+    # Linear angles k*p + b share one parameter.
+    linear = QuantumCircuit(1); linear.ry(2 * a + 0.1, 0)
+    assert expectation(linear, "Z0", values=[0.3]).value == pytest.approx(math.cos(0.7), abs=1e-14)
 
 
 def test_observable_forms_agree():
@@ -130,8 +133,8 @@ def test_estimator_matches_statevector_estimator_with_broadcasting():
     assert ours.metadata["pauli_cones"]["shared_parameters"] is True
     assert ours.metadata["pauli_cones"]["plans"] == 2  # one per observable, reused across 4 bindings
     # A circuit whose parameters cannot be shared is rebuilt per binding.
-    q2 = QuantumCircuit(1); q2.ry(2 * a, 0)
-    vals = np.array([[0.1], [0.4]])
+    q2 = QuantumCircuit(1); q2.ry(a * b, 0)
+    vals = np.array([[0.1, 2.0], [0.4, 2.0]])
     res = Estimator().run([(q2, "Z", vals)]).result()[0]
     assert np.allclose(res.data.evs, np.cos(2 * vals[:, 0]), atol=1e-14)
     assert res.metadata["pauli_cones"]["shared_parameters"] is False

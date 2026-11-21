@@ -11,7 +11,12 @@ import numbers
 import threading
 from typing import Mapping, Sequence
 import numpy as np
-from ._core._reference import NoisyPauliCircuit, ConeOverflow
+from ._core._reference import MAX_PARAMETERS, NoisyPauliCircuit, ConeOverflow
+
+
+# Hamiltonians of small molecules reach thousands of terms; each term costs one
+# bit per stage in the cone pass, so the count is bounded.
+MAX_OBSERVABLE_TERMS = 65536
 
 
 def _integer(value, name, lo, hi):
@@ -79,15 +84,19 @@ class Evaluation:
 
 
 class Circuit:
-    """Circuit builder for 1..16384 logical wires and 0..16 shared parameters.
+    """Circuit builder for 1..16384 logical wires and 0..4096 shared parameters.
 
-    max_terms limits each observable cone, not all process memory. This is a
-    trusted local numerical library, not an isolation boundary for hostile input.
+    A parameterised gate's angle is theta + scale * shift[param], so one shared
+    parameter can drive many gates with different weights (QAOA's gamma * w_ij,
+    a Trotter step's 2 h dt). The native backend computes gradients 16
+    parameters per pass; the graph backend computes all of them in one reverse
+    pass. max_terms limits each observable cone, not all process memory. This
+    is a trusted local numerical library, not an isolation boundary for hostile input.
     """
     def __init__(self, n_qubits: int, n_parameters: int = 0, max_terms: int = 50_000):
         self._impl = NoisyPauliCircuit(
             _integer(n_qubits, "n_qubits", 1, 16384),
-            _integer(n_parameters, "n_parameters", 0, 16),
+            _integer(n_parameters, "n_parameters", 0, MAX_PARAMETERS),
             _integer(max_terms, "max_terms", 1, 1_000_000),
         )
 
@@ -109,22 +118,43 @@ class Circuit:
     def _param(self, param):
         return _integer(param, "param", -1, self.n_parameters-1)
 
-    def gate(self, name: str, wires: Sequence[int], theta: float = 0.0, param: int = -1):
+    def gate(self, name: str, wires: Sequence[int], theta: float = 0.0, param: int = -1, scale: float = 1.0):
         if not isinstance(name, str): raise ValueError("gate name must be text")
         name = name.upper()
         one = {"H", "SX", "X", "Y", "Z", "RX", "RY", "RZ"}
         if name not in one | {"CZ", "ECR"}:
-            raise ValueError("unsupported gate; use fsim() for fSim")
+            raise ValueError("unsupported gate; use fsim() for fSim and unitary() for any other matrix")
         ws = self._wires(wires, 1 if name in one else 2)
-        angle = _real(theta, "theta"); p = self._param(param)
+        angle = _real(theta, "theta"); p = self._param(param); k = self._scale(scale, p)
         if name not in {"RX", "RY", "RZ"} and (p != -1 or angle != 0):
             raise ValueError("fixed gates do not accept an angle or parameter")
-        self._impl.gate(name, ws, angle, p)
+        self._impl.gate(name, ws, angle, p, k)
         return self
 
-    def fsim(self, wires: Sequence[int], theta: float, phi: float, param: int = -1):
-        self._impl.fsim(self._wires(wires, 2), _real(theta, "theta"), _real(phi, "phi"), self._param(param))
+    def fsim(self, wires: Sequence[int], theta: float, phi: float, param: int = -1, scale: float = 1.0):
+        p = self._param(param)
+        self._impl.fsim(self._wires(wires, 2), _real(theta, "theta"), _real(phi, "phi"), p,
+                        scale=self._scale(scale, p))
         return self
+
+    def unitary(self, wires: Sequence[int], matrix):
+        """Any fixed one- or two-qubit unitary (2x2 or 4x4).
+
+        The first wire is the least significant bit of the matrix index, as for
+        the native ECR; Qiskit's little-endian Operator.data uses the same order.
+        """
+        ws = self._wires(wires)
+        m = np.asarray(matrix, dtype=complex)
+        if m.shape != (2 ** len(ws),) * 2 or not np.all(np.isfinite(m)):
+            raise ValueError(f"a {len(ws)}-qubit unitary needs a finite {2 ** len(ws)}x{2 ** len(ws)} matrix")
+        self._impl.unitary(ws, m)
+        return self
+
+    def _scale(self, scale, param):
+        k = _real(scale, "scale")
+        if param != -1 and k == 0:
+            raise ValueError("a parameter's scale must be nonzero")
+        return k
 
     def pauli_error(self, wire: int, axis: str, probability: float):
         wire = self._wires((wire,), 1)[0]
@@ -151,7 +181,7 @@ class Circuit:
         return self
 
     def prepare(self, observables, *, backend: str = "native",
-                graph_max_nodes: int = 200_000, graph_max_edges: int = 1_000_000,
+                graph_max_nodes: int = 2_000_000, graph_max_edges: int = 10_000_000,
                 dense_max_qubits: int = 6, dense_max_bytes: int = 64*1024*1024,
                 max_cone_qubits: int = 256, truncation: Truncation | None = None,
                 threads: int = 1) -> Prepared:
@@ -172,7 +202,7 @@ class Prepared:
     preparation; its reported bound is computed at every evaluation's angles.
     """
     def __init__(self, circuit: Circuit, observables, *, backend: str = "native",
-                 graph_max_nodes: int = 200_000, graph_max_edges: int = 1_000_000,
+                 graph_max_nodes: int = 2_000_000, graph_max_edges: int = 10_000_000,
                  dense_max_qubits: int = 6, dense_max_bytes: int = 64*1024*1024,
                  max_cone_qubits: int = 256, truncation: Truncation | None = None,
                  threads: int = 1):
@@ -191,7 +221,7 @@ class Prepared:
         if truncation is not None and backend not in ('native', 'graph', 'auto'):
             raise ValueError('truncation is supported by the native, graph and auto backends')
         items = list(observables)
-        if not 1 <= len(items) <= 1024: raise ValueError("provide 1..1024 observable terms")
+        if not 1 <= len(items) <= MAX_OBSERVABLE_TERMS: raise ValueError(f"provide 1..{MAX_OBSERVABLE_TERMS} observable terms")
         checked = []
         for item in items:
             if not isinstance(item, (tuple, list)) or len(item) != 2: raise ValueError("observable is (coefficient, wire-to-Pauli mapping)")

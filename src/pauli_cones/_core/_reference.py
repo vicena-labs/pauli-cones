@@ -138,6 +138,11 @@ class Stage:
     name: str=''
     angle: float | None = None
     phi: float | None = None
+    scale: float = 1.0  # bound angle = angle + scale * shift[param]
+    data: tuple = ()    # physical parameters for state simulators: a channel's numbers or a unitary
+
+
+MAX_PARAMETERS = 4096
 
 
 class ConeOverflow(RuntimeError):
@@ -146,13 +151,13 @@ class ConeOverflow(RuntimeError):
 
 class NoisyPauliCircuit:
     def __init__(self,nqubits:int,nparams:int=0,max_terms:int=50000):
-        if not 1<=nqubits<=16384 or not 0<=nparams<=16 or max_terms<1:
-            raise ValueError('nqubits 1..16384, nparams 0..16, max_terms>=1')
+        if not 1<=nqubits<=16384 or not 0<=nparams<=MAX_PARAMETERS or max_terms<1:
+            raise ValueError(f'nqubits 1..16384, nparams 0..{MAX_PARAMETERS}, max_terms>=1')
         self.nqubits,self.nparams,self.max_terms=nqubits,nparams,max_terms
         self.stages:list[Stage]=[]
         self.readout:dict[int,tuple[float,float]]={}
 
-    def _stage(self,wires,matrix,derivative=None,param=-1,name='',angle=None,phi=None):
+    def _stage(self,wires,matrix,derivative=None,param=-1,name='',angle=None,phi=None,scale=1.,data=()):
         wires=tuple(wires)
         if not 1<=len(wires)<=2 or len(set(wires))!=len(wires) or any(not 0<=w<self.nqubits for w in wires):
             raise ValueError('invalid wires')
@@ -165,10 +170,11 @@ class NoisyPauliCircuit:
         if derivative.shape !=(d,d) or not np.all(np.isfinite(derivative)):
             raise ValueError('invalid PTM derivative')
         if param!=-1 and not 0<=param<self.nparams:raise ValueError('invalid parameter')
-        self.stages.append(Stage(wires,matrix,derivative,param,name,angle,phi))
+        if not math.isfinite(scale) or (param!=-1 and scale==0.):raise ValueError('invalid parameter scale')
+        self.stages.append(Stage(wires,matrix,derivative*scale,param,name,angle,phi,float(scale),data))
         return self
 
-    def gate(self,name:str,wires:Sequence[int],theta:float=0.,param:int=-1):
+    def gate(self,name:str,wires:Sequence[int],theta:float=0.,param:int=-1,scale:float=1.):
         name=name.upper();wires=tuple(wires)
         if name in GATE1 and len(wires)==1 and param==-1:
             U=GATE1[name];dU=None
@@ -181,9 +187,16 @@ class NoisyPauliCircuit:
         else:
             raise ValueError(f'unsupported gate {name} or wires/parameter')
         t,d=cached_gate_ptm(name,theta,param!=-1)
-        return self._stage(wires,t,d,param,name,theta if param!=-1 else None)
+        # Fixed rotations keep their angle too, so a circuit can be read back.
+        return self._stage(wires,t,d,param,name,theta if name in ('RX','RY','RZ','FSIM') else None,scale=scale)
 
-    def fsim(self,wires:Sequence[int],theta:float,phi:float,param:int=-1,phi_param:int=-1):
+    def unitary(self,wires:Sequence[int],matrix):
+        """A fixed one- or two-qubit unitary; wire a is the least significant bit."""
+        u=np.asarray(matrix,dtype=complex)
+        t,_=transfer(u)
+        return self._stage(wires,t,name='UNITARY',data=(u,))
+
+    def fsim(self,wires:Sequence[int],theta:float,phi:float,param:int=-1,phi_param:int=-1,scale:float=1.):
         U,dt,df=fsim(theta,phi)
         # Two independently variable angles are represented by successive tangent-stage
         # derivatives of the same PTM, with no physical evolution between them.
@@ -191,20 +204,20 @@ class NoisyPauliCircuit:
         # rather than delivering incorrect chain rules.
         if phi_param!=-1:raise ValueError('phi gradient unsupported in this prototype')
         t,d=transfer(U,dt if param!=-1 else None)
-        return self._stage(wires,t,d,param,'FSIM',theta if param!=-1 else None,phi)
+        return self._stage(wires,t,d,param,'FSIM',theta,phi,scale)
 
     def channel_pauli(self,wire:int,axis:str,probability:float):
         if not 0<=probability<=1:raise ValueError('invalid probability')
         axis=axis.upper(); p={'X':X,'Y':Y,'Z':Z}.get(axis)
         if p is None:raise ValueError('invalid Pauli')
         t=(1-probability)*np.eye(4)+probability*transfer(p)[0]
-        return self._stage((wire,),t,name=f'{axis}_ERROR')
+        return self._stage((wire,),t,name=f'{axis}_ERROR',data=(probability,))
 
     def channel_depolarize(self,wires:Sequence[int],probability:float):
-        return self._stage(wires,depolarizing_ptm(probability,len(wires)),name='DEPOLARIZE')
+        return self._stage(wires,depolarizing_ptm(probability,len(wires)),name='DEPOLARIZE',data=(probability,))
 
     def channel_relax(self,wire:int,duration:float,T1:float,T2:float):
-        return self._stage((wire,),relaxation_ptm(duration,T1,T2),name='T1_T2')
+        return self._stage((wire,),relaxation_ptm(duration,T1,T2),name='T1_T2',data=(duration,T1,T2))
 
     def set_readout(self,wire:int,p01:float,p10:float):
         if not 0<=wire<self.nqubits or not 0<=p01<=1 or not 0<=p10<=1:raise ValueError('invalid readout')
@@ -223,14 +236,14 @@ class NoisyPauliCircuit:
         out.readout=self.readout.copy()
         for st in self.stages:
             if st.param<0:out.stages.append(st);continue
-            theta=st.angle+float(deltas[st.param])
+            theta=st.angle+st.scale*float(deltas[st.param])
             if st.name in ('RX','RY','RZ'):
                 mat,der=cached_gate_ptm(st.name,theta,True)
             elif st.name=='FSIM':
                 u,du,_=fsim(theta,st.phi)
                 mat,der=transfer(u,du)
             else:raise ValueError('unsupported parameter rebind')
-            out.stages.append(Stage(st.wires,mat,der,st.param,st.name,theta,st.phi))
+            out.stages.append(Stage(st.wires,mat,der*st.scale,st.param,st.name,theta,st.phi,st.scale,st.data))
         return out
 
     @staticmethod

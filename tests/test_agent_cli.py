@@ -35,7 +35,7 @@ def test_self_description_commands_are_machine_readable():
     code, out = cli(['capabilities'])
     caps = json.loads(out)
     assert code == 0 and 'ECR' in caps['native_gates'] and 'cx' in caps['converted_gates']
-    assert caps['exit_codes']['124'] and caps['limits']['shared_parameters'] == 16
+    assert caps['exit_codes']['124'] and caps['limits']['shared_parameters'] == 4096
     code, out = cli(['schema'])
     assert code == 0 and {'circuit', 'openqasm'} == {s['title'] for s in json.loads(out)['request']['oneOf']}
     code, out = cli(['guide'])

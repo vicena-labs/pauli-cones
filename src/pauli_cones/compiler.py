@@ -54,6 +54,7 @@ class Compiled:
     source_order: list | None = None
     report: dict = field(default_factory=dict)
     readout: tuple | None = None
+    schedule: list = field(default_factory=list)   # gates on physical qubits with start times and durations
 
     def observable(self, spec):
         """Observable terms on the final physical qubits, with the device's readout error applied."""
@@ -97,10 +98,24 @@ def compile_circuit(circuit, device, *, layout="greedy", router="greedy", noise=
                                  noise_scale if noise else 0.0)
     readout = device.readout_map(noise_scale) if noise else None  # per qubit where the chip says so
     converted = _emit(device.n_qubits, scheduled, params, None, max_terms)  # readout acts on observables
+    schedule = facts.pop("schedule")
+    budget = facts.pop("noise_budget")
+    _add_readout(budget, readout, final)
     report = {"device": device.name, "router": router, "layout": layout_method,
               "logical_qubits": n, "swaps": swaps, **facts, "noise": bool(noise), "idle_noise": bool(idle_noise and noise),
-              "noise_scale": noise_scale, "initial_layout": initial, "final_layout": final}
-    return Compiled(converted.circuit, device, initial, final, params, source_order, report, readout)
+              "noise_scale": noise_scale, "initial_layout": initial, "final_layout": final, "noise_budget": budget}
+    return Compiled(converted.circuit, device, initial, final, params, source_order, report, readout, schedule)
+
+
+def _add_readout(budget, readout, measured):
+    """Each measured qubit's readout error, (p01 + p10) / 2, in the budget and its totals."""
+    for q in measured:
+        pair = readout.get(q) if isinstance(readout, dict) else readout
+        if pair:
+            budget["qubits"].setdefault(str(q), {})["readout_error"] = (pair[0] + pair[1]) / 2
+            budget["totals"]["readout"] += (pair[0] + pair[1]) / 2
+    totals = budget["totals"]
+    budget["estimated_fidelity"] = math.exp(-sum(v for k, v in totals.items() if k != "zz_phase_rad"))
 
 
 def _instructions(circuit, values):
@@ -299,7 +314,7 @@ def _route(ops, layout, device):
     l2p = list(layout)
     p2l = {p: q for q, p in enumerate(l2p)}
     routed, swaps = [], 0
-    for prim, wires, base, index, sign in ops:
+    for prim, wires, base, index, weight in ops:
         physical = [l2p[q] for q in wires]
         if prim in TWO_QUBIT and tuple(sorted(physical)) not in coupled:
             path = _path(adjacency, physical[0], physical[1])
@@ -317,7 +332,7 @@ def _route(ops, layout, device):
                     l2p[qb] = a
                 p2l[a], p2l[b] = qb, qa
             physical = [l2p[q] for q in wires]
-        routed.append((prim, physical, base, index, sign))
+        routed.append((prim, physical, base, index, weight))
     return routed, l2p, swaps
 
 
@@ -400,6 +415,9 @@ def _schedule(ops, device, noise, idle, scale=1.0):
     zz_rate = 2 * math.pi * device.crosstalk.get("zz_hz", 0.) * scale   # conditional phase per second
     zz_clock = {}   # coupled pair of started qubits -> time up to which its ZZ phase has been applied
     coherence = {}
+    # The noise budget: what each qubit and coupler contributes, for reports and chip heat maps.
+    qubits, couplers = {}, {}
+    totals = {"gate_1q": 0.0, "gate_2q": 0.0, "idle": 0.0, "spectator": 0.0, "readout": 0.0, "zz_phase_rad": 0.0}
 
     def flush_pair(pair, until):
         """Apply a pair's ZZ phase accumulated up to `until`."""
@@ -408,6 +426,9 @@ def _schedule(ops, device, noise, idle, scale=1.0):
             for z_prim, z_wires, z_angle in _DECOMPOSE["rzz"](list(pair), [zz_rate * elapsed]):
                 out.append((z_prim, list(z_wires), z_angle, -1, 1))  # coherent error, not a gate
             zz_clock[pair] = until
+            entry = couplers.setdefault(f"{pair[0]}-{pair[1]}", {})
+            entry["zz_phase_rad"] = entry.get("zz_phase_rad", 0.0) + zz_rate * elapsed
+            totals["zz_phase_rad"] += zz_rate * elapsed
 
     def flush_zz(qubit, until):
         """Apply each pair's ZZ phase accumulated up to `until`, for pairs containing `qubit`."""
@@ -429,7 +450,22 @@ def _schedule(ops, device, noise, idle, scale=1.0):
 
     busy, started, level = {}, set(), {}
     out, one, two = [], 0, 0
-    for prim, wires, base, index, sign in ops:
+    schedule = []
+
+    def charge(q, key, amount, total=None):
+        entry = qubits.setdefault(str(q), {})
+        entry[key] = entry.get(key, 0) + amount
+        if total:
+            totals[total] += amount
+
+    def relax(w, gap):
+        t1, t2 = relax_times(w)
+        out.append(("RELAX", [w], (gap, t1, t2), -1, 1))
+        charge(w, "idle_s", gap)
+        # Average infidelity of the relaxation channel: (3 - e^{-t/T1} - 2 e^{-t/T2}) / 6.
+        charge(w, "idle_error", (3 - math.exp(-gap / t1) - 2 * math.exp(-gap / t2)) / 6, "idle")
+
+    for prim, wires, base, index, weight in ops:
         virtual = prim == "RZ"
         duration = 0.0 if virtual else durations[len(wires)]
         start = max(busy.get(w, 0.0) for w in wires)
@@ -443,8 +479,10 @@ def _schedule(ops, device, noise, idle, scale=1.0):
             for w in wires:
                 gap = start - busy.get(w, 0.0)
                 if w in started and gap > 0 and relax_times(w):
-                    out.append(("RELAX", [w], (gap, *relax_times(w)), -1, 1))
-        out.append((prim, wires, base, index, sign))
+                    relax(w, gap)
+        out.append((prim, wires, base, index, weight))
+        schedule.append({"gate": prim.lower(), "qubits": list(wires), "start_s": start, "duration_s": duration,
+                         **({"parameter": index} if index >= 0 else {})})
         if not virtual:
             depth = max(level.get(w, 0) for w in wires) + 1
             for w in wires:
@@ -453,18 +491,26 @@ def _schedule(ops, device, noise, idle, scale=1.0):
             two += 1
             # The coupler's own infidelity when the chip gives one, as a depolarizing probability.
             error = device.coupler_error(*wires) if scale else 0.
+            key = f"{min(wires)}-{max(wires)}"
+            entry = couplers.setdefault(key, {})
+            entry["gates"] = entry.get("gates", 0) + 1
             if error:
                 out.append(("DEPOL", wires, min(0.9375, error * scale * 5 / 4), -1, 1))
+                entry["gate_error"] = entry.get("gate_error", 0.0) + error * scale
+                totals["gate_2q"] += error * scale
             if spectator:
                 for w in wires:
                     for s in adjacency[w]:
                         if s not in wires and s in started:
                             out.append(("DEPOL", [s], min(0.75, spectator * 3 / 2), -1, 1))
+                            charge(s, "spectator_error", spectator, "spectator")
         elif not virtual:
             one += 1
             error = device.qubit(wires[0], "error_1q") if scale else 0.
+            charge(wires[0], "gates_1q", 1)
             if error:
                 out.append(("DEPOL", wires, min(0.75, error * scale * 3 / 2), -1, 1))
+                charge(wires[0], "gate_error_1q", error * scale, "gate_1q")
         for w in wires:
             busy[w] = start + duration
             if zz_rate and w not in started:  # a newly started qubit couples to its started neighbours
@@ -483,6 +529,8 @@ def _schedule(ops, device, noise, idle, scale=1.0):
     if idle:
         for w in sorted(started):
             if end - busy[w] > 0 and relax_times(w):
-                out.append(("RELAX", [w], (end - busy[w], *relax_times(w)), -1, 1))
+                relax(w, end - busy[w])
+    budget = {"qubits": qubits, "couplers": couplers, "totals": totals,
+              "note": "error sums are first-order (infidelities add); estimated_fidelity = exp(-sum of totals)"}
     return out, {"one_qubit_gates": one, "two_qubit_gates": two, "depth": max(level.values(), default=0),
-                 "duration_s": end}
+                 "duration_s": end, "schedule": schedule, "noise_budget": budget}
