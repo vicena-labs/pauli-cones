@@ -37,6 +37,21 @@ Observables are written with wire indices, such as `"0.5*Z0*Z1 - X3"`, or as Qis
 
 Add `--device heavy-hex-127` (or `--device my_chip.json`) to `run` or `plan` to apply the chip's gate and readout errors and check its connectivity. The response's `device.uncoupled_two_qubit_operations` counts gates on qubit pairs the chip does not couple. Catalogue noise values are typical figures for each technology, not calibration data; scale them for noise studies in Python with `chip.scaled_noise(2.0)`.
 
+To run a circuit on a chip, add `--compile`:
+
+```bash
+pauli-cones compile circuit.qasm --device heavy-hex-127                       # SWAPs, depth, duration, layouts
+pauli-cones run circuit.qasm --observable "Z0*Z5" --device heavy-hex-127 --compile --noise-scale 2
+```
+
+Compiling does four things:
+1. Places the circuit's qubits on the chip.
+2. Inserts SWAPs so every two-qubit gate acts on coupled qubits. `--router sabre` uses Qiskit and usually needs fewer.
+3. Schedules gates with the chip's durations.
+4. Simulates gate errors (a SWAP counts as three two-qubit gates), T1/T2 decay while qubits idle, and readout error on the measured Paulis.
+
+Observables keep the circuit's own qubit numbers; they are moved to the final layout for you. `--noise-scale` multiplies every error and decoherence rate, so 0 is noise-free and repeating a run at several scales is a noise sweep. In Python: `from pauli_cones.compiler import compile_circuit`, then `compile_circuit(circuit, chip).expectation("Z0*Z1")`.
+
 ## Recipe
 
 1. **Plan.** `pauli-cones plan`: if `exact_guaranteed` is true, exact evaluation cannot exceed the term cap.

@@ -22,9 +22,16 @@ def main():
         start=time.perf_counter()
         data=strict_json(sys.stdin.buffer.read(4*1024*1024+1).decode('utf-8'))
         from .schema import decode_request
-        c,obs,vecs=decode_request(data)
+        decoded = decode_request(data)
+        c, obs, vecs = decoded[:3]
+        compile_report = decoded[3] if len(decoded) > 3 else None
         device_check = None
-        if isinstance(data, dict) and 'device' in data:
+        if compile_report is not None and len(sys.argv) > 2 and sys.argv[2] == 'compile':
+            output = {'ok': True, 'schema_version': 1, 'compile': compile_report,
+                      'timings': {'worker_seconds': time.perf_counter() - start}}
+            print(json.dumps(output, allow_nan=False, separators=(',', ':')), flush=True)
+            return 0
+        if isinstance(data, dict) and 'device' in data and compile_report is None:
             from .devices import Device
             device = Device.from_dict(data['device'])
             pairs = device.uncoupled_pairs(c)
@@ -56,6 +63,7 @@ def main():
             'n_parameters':c.n_parameters,'results':[x.as_dict() for x in results],
             'gradients':gradients, 'diagnostics':plan.diagnostics,
             **({'device': device_check} if device_check else {}),
+            **({'compile': compile_report} if compile_report else {}),
             'numerics':plan.numerics,
             'timings':{'preparation_seconds':preparation,'evaluate_batch_seconds':computation,
                        'worker_seconds':time.perf_counter()-start}}

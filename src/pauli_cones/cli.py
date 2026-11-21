@@ -4,6 +4,7 @@ error.type, error.message and error.hint with a concrete next step.
 
     pauli-cones capabilities | schema | guide | example | doctor
     pauli-cones devices | device NAME [--param k=v]   # chip catalogue and descriptions
+    pauli-cones compile INPUT --device NAME           # route onto a chip: SWAPs, depth, duration, layouts
     pauli-cones plan  INPUT [--observable EXPR]     # dry run: feasibility and recommendations
     pauli-cones run   INPUT [--observable EXPR] [options]
 
@@ -50,7 +51,8 @@ def main(argv=None):
     dev.add_argument('--param', action='append', default=[], help='Catalogue parameter, e.g. --param rows=6')
     dev.add_argument('--edges', action='store_true', help='Print the full description with every coupler')
     for name, text in (('plan', 'Dry run: cone sizes, a rigorous term bound and recommended next commands'),
-                       ('run', 'Evaluate one request: values, gradients and diagnostics')):
+                       ('run', 'Evaluate one request: values, gradients and diagnostics'),
+                       ('compile', 'Route an OpenQASM circuit onto a chip and report SWAPs, depth and duration')):
         cmd = sub.add_parser(name, help=text)
         cmd.add_argument('input', nargs='?', default='-', help='JSON request, OpenQASM file, or - for stdin')
         cmd.add_argument('--observable', help='For OpenQASM input: e.g. "0.5*Z0*Z1 - X3" or "0.5*IXZ"')
@@ -62,6 +64,13 @@ def main(argv=None):
         cmd.add_argument('--device', help='OpenQASM input: a chip from the catalogue or a .json file; applies '
                                           'its noise and checks its connectivity')
         cmd.add_argument('--device-param', action='append', default=[], help='Catalogue parameter, e.g. rows=6')
+        cmd.add_argument('--compile', action='store_true', help='With --device: route the circuit onto the chip '
+                         'and simulate it with gate errors, idle T1/T2 and readout')
+        cmd.add_argument('--router', choices=('greedy', 'sabre'), default='greedy',
+                         help='SWAP router; sabre needs Qiskit and usually inserts fewer SWAPs')
+        cmd.add_argument('--layout', choices=('greedy', 'trivial'), default='greedy', help='Initial qubit placement')
+        cmd.add_argument('--noise-scale', type=float, default=1.0, help='Multiply every device error (noise sweeps)')
+        cmd.add_argument('--no-idle-noise', action='store_true', help='Skip T1/T2 relaxation of idle qubits')
         cmd.add_argument('--timeout', type=float, default=60.0, help='Worker wall deadline in seconds')
         if name == 'run':
             cmd.add_argument('--backend', choices=('native', 'python', 'graph', 'dense', 'auto'), default='native')
@@ -109,7 +118,7 @@ def main(argv=None):
             return emit_error('InputTooLarge', 'request exceeds 4 MiB', hint='Split the work into smaller requests.')
         if _is_qasm(args.input, raw):
             raw = _qasm_request(raw, args)
-        mode = 'plan' if args.command == 'plan' else ('value' if args.value_only else 'request')
+        mode = args.command if args.command in ('plan', 'compile') else ('value' if args.value_only else 'request')
         options = {'threads': getattr(args, 'threads', 1)}
         if getattr(args, 'min_coefficient', None) is not None or getattr(args, 'max_weight', None) is not None:
             options['truncation'] = {'min_coefficient': args.min_coefficient or 0., 'max_weight': args.max_weight}
@@ -177,10 +186,16 @@ def _is_qasm(path, raw):
 
 def _qasm_request(raw, args):
     """Wrap OpenQASM text and command-line options into the OpenQASM request form."""
-    if not args.observable:
+    compiling = args.command == 'compile' or args.compile
+    if compiling and not args.device:
+        raise _UsageError('compiling needs --device', 'Add e.g. --device heavy-hex-127; see `pauli-cones devices`.')
+    if not args.observable and args.command != 'compile':
         raise _UsageError('OpenQASM input needs --observable',
                           'Add e.g. --observable "Z0" or --observable "0.5*Z0*Z1 - X3".')
-    request = {'schema_version': 1, 'qasm': raw.decode('utf-8'), 'observables': args.observable}
+    request = {'schema_version': 1, 'qasm': raw.decode('utf-8'), 'observables': args.observable or 'Z0'}
+    if compiling:
+        request['compile'] = {'router': args.router, 'layout': args.layout, 'noise_scale': args.noise_scale,
+                              'idle_noise': not args.no_idle_noise}
     if args.max_terms is not None:
         request['max_terms'] = args.max_terms
     if args.device:
@@ -203,6 +218,9 @@ def _qasm_request(raw, args):
         request['noise'] = noise
     if getattr(args, 'value_only', False):
         request['gradients'] = False
+    if compiling and noise:
+        raise _UsageError('compiling uses the device noise',
+                          'Drop --noise-1q/--noise-2q/--readout and use --noise-scale to vary the device noise.')
     return json.dumps(request).encode('utf-8')
 
 

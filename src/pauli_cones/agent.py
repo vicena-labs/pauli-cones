@@ -38,7 +38,9 @@ def capabilities():
         },
         "native_gates": ["H", "SX", "X", "Y", "Z", "RX", "RY", "RZ", "CZ", "ECR", "FSIM"],
         "devices": "chip catalogue: `pauli-cones devices`; describe one with `pauli-cones device NAME`; "
-                   "apply a chip's noise and check its connectivity with --device on run and plan",
+                   "apply a chip's noise and check its connectivity with --device on run and plan; "
+                   "route onto it and simulate gate errors, idle T1/T2 and readout with --compile, "
+                   "or report SWAPs, depth and duration with `pauli-cones compile`",
         "converted_gates": SUPPORTED_GATES,
         "other_gates": "transpiled by Qiskit when it is installed",
         "noise": ["DEPOLARIZE (1 or 2 wires)", "PAULI_ERROR", "RELAX (T1/T2)", "readout (p01, p10)",
@@ -95,6 +97,12 @@ def schema():
                                 "depolarizing_1q": {"type": "number"}, "depolarizing_2q": {"type": "number"},
                                 "readout": {"type": "array", "items": {"type": "number"}, "minItems": 2,
                                             "maxItems": 2}}},
+                            "compile": {"type": "object", "description": "with device: route onto the chip and "
+                                        "simulate its noise", "properties": {
+                                            "router": {"enum": ["greedy", "sabre"]},
+                                            "layout": {"enum": ["greedy", "trivial"]},
+                                            "noise_scale": {"type": "number", "minimum": 0},
+                                            "idle_noise": {"type": "boolean"}, "noise": {"type": "boolean"}}},
                             "device": {"type": "object", "description": "a pauli-cones-device/1 chip description "
                                        "(`pauli-cones device NAME --edges`); its noise applies unless noise is "
                                        "given, and the response reports uncoupled two-qubit operations"}}},

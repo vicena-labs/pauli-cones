@@ -23,7 +23,7 @@ from qiskit.primitives.containers import DataBin, PrimitiveResult, PubResult
 from qiskit.primitives.containers.estimator_pub import EstimatorPub
 from qiskit.primitives.primitive_job import PrimitiveJob
 
-from .interop import ConversionError, from_qiskit, parse_observable
+from .interop import ConversionError, Noise, _without_readout, from_qiskit, parse_observable, readout_expand
 
 
 class Estimator(BaseEstimatorV2):
@@ -37,6 +37,8 @@ class Estimator(BaseEstimatorV2):
                  max_terms=1_000_000, default_precision=0.0):
         if device is not None and noise is None:
             noise = device.noise_model()  # a pauli_cones.devices Device's gate and readout errors
+        # Readout applies to the measured Paulis (any axis), not as a circuit channel.
+        noise, self.readout = _without_readout(Noise.coerce(noise))
         self.backend = backend
         self.truncation = truncation
         self.threads = threads
@@ -73,7 +75,7 @@ class Estimator(BaseEstimatorV2):
         plans = {}
         for index in np.ndindex(*shape):
             b = int(binding_index[index])
-            terms = parse_observable(observables[index], circuit.num_qubits)
+            terms = readout_expand(parse_observable(observables[index], circuit.num_qubits), self.readout)
             key = (None if shared else b, tuple((c, tuple(sorted(p.items()))) for c, p in terms))
             if key not in plans:
                 converted = shared or from_qiskit(circuit, values=flat_values[b], noise=self.noise,

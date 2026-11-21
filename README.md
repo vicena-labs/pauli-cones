@@ -65,7 +65,20 @@ pauli-cones device square-grid --param rows=6 --param columns=6
 pauli-cones run circuit.qasm --observable "Z0*Z1" --device all-to-all-ions --device-param n=20
 ```
 
-With `--device`, the response reports any two-qubit operations on qubits the chip does not couple.
+With `--device`, the response reports any two-qubit operations on qubits the chip does not couple. To run on the chip, add `--compile`.
+
+`pauli_cones.compiler` routes a circuit onto a chip:
+- it places the qubits, inserting SWAPs where needed (built in, or Qiskit's SABRE with `router="sabre"`);
+- it schedules gates with the chip's durations;
+- it simulates gate errors, T1/T2 decay of idle qubits, and readout error on the measured Paulis.
+
+Observables keep the circuit's qubit numbers, and `noise_scale` multiplies every error and decoherence rate for noise sweeps. Without noise, a compiled circuit reproduces the original expectation exactly.
+
+```python
+from pauli_cones.compiler import compile_circuit
+compiled = compile_circuit(circuit_qasm, devices.get("heavy-hex-127"), noise_scale=2)
+print(compiled.report["swaps"], compiled.report["duration_s"], compiled.expectation("Z0*Z1").value)
+```
 
 The command line is built to be driven by AI agents in a shell:
 - every command prints one JSON document;

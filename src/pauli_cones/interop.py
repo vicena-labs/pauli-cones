@@ -125,6 +125,34 @@ def from_qiskit(circuit, *, values=None, noise=None, max_terms=1_000_000):
     return converted
 
 
+def source_instructions(circuit, values=None):
+    """(n_qubits, instructions, source parameter order) from OpenQASM text or a Qiskit circuit.
+
+    Instructions are (name, qubits, parameters) in the converters' gate vocabulary,
+    the form the compiler routes before lowering.
+    """
+    if isinstance(circuit, str):
+        if re.search(r"OPENQASM\s+3", circuit):
+            from qiskit import qasm3
+            circuit = qasm3.loads(circuit)
+        else:
+            n, instructions = _parse_qasm2(circuit)
+            return n, instructions, None
+    if values is not None:
+        circuit = circuit.assign_parameters(_binding(circuit, values))
+    if any(i.operation.name not in SUPPORTED_GATES and i.operation.name not in _IGNORED
+           and i.operation.name != "measure" for i in circuit.data):
+        from qiskit import transpile
+        circuit = transpile(circuit, basis_gates=SUPPORTED_GATES, optimization_level=0)
+    instructions = []
+    for item in circuit.data:
+        op = item.operation
+        if getattr(op, "condition", None) is not None:
+            raise ConversionError("classically conditioned operations are not supported")
+        instructions.append((op.name, [circuit.find_bit(q).index for q in item.qubits], list(op.params)))
+    return circuit.num_qubits, instructions, list(circuit.parameters)
+
+
 def _binding(circuit, values):
     params = list(circuit.parameters)
     if isinstance(values, dict):
@@ -150,6 +178,16 @@ def from_qasm(text, *, noise=None, max_terms=1_000_000):
 
 def _build(n, instructions, noise, max_terms):
     """Decompose source instructions into native ops, mapping shared parameters."""
+    ops, params = _lower(instructions, noise)
+    return _emit(n, ops, params, noise.readout if noise else None, max_terms)
+
+
+def _lower(instructions, noise=None):
+    """Native ops (prim, wires, base, parameter index, sign) and the shared parameters.
+
+    prim is a native gate name, or "DEPOL" with its probability as base when
+    `noise` adds gate errors. The compiler routes these ops before emitting.
+    """
     measured = set()
     ops, params = [], []
     for name, qubits, angles in instructions:
@@ -168,11 +206,11 @@ def _build(n, instructions, noise, max_terms):
             raise ConversionError(f"unsupported gate {name!r}",
                                   "install Qiskit so unknown gates are transpiled, or use: " + ", ".join(SUPPORTED_GATES))
         for prim, wires, angle in _DECOMPOSE[name](qubits, angles):
-            ops.append((prim, wires, angle))
+            ops.append((prim, list(wires), angle))
         if noise and len(qubits) == 1 and noise.depolarizing_1q:
-            ops.append(("DEPOL", qubits, noise.depolarizing_1q))
+            ops.append(("DEPOL", list(qubits), noise.depolarizing_1q))
         if noise and len(qubits) == 2 and noise.depolarizing_2q:
-            ops.append(("DEPOL", qubits, noise.depolarizing_2q))
+            ops.append(("DEPOL", list(qubits), noise.depolarizing_2q))
     # Map symbolic angles to shared parameters, or fail with a clear request for values.
     resolved = []
     for prim, wires, angle in ops:
@@ -193,10 +231,17 @@ def _build(n, instructions, noise, max_terms):
     if len(params) > MAX_SHARED_PARAMETERS:
         raise ConversionError(f"{len(params)} parameters exceed the {MAX_SHARED_PARAMETERS} shared parameters",
                               "pass numeric values (values=...); the circuit is then rebuilt for each binding")
+    return resolved, params
+
+
+def _emit(n, ops, params, readout, max_terms):
+    """A Pauli Cones Circuit from native ops. "RELAX" ops carry (duration, t1, t2) as base."""
     c = Circuit(n, len(params), max_terms)
-    for prim, wires, base, index, sign in resolved:
+    for prim, wires, base, index, sign in ops:
         if prim == "DEPOL":
             c.depolarize(wires, base)
+        elif prim == "RELAX":
+            c.relax(wires[0], *base)
         elif prim in ("RX", "RY", "RZ"):
             if sign < 0:
                 # angle = base - p: conjugate so the shift enters with +1:
@@ -207,8 +252,8 @@ def _build(n, instructions, noise, max_terms):
                 c.gate(prim, wires, base, index)
         else:
             c.gate(prim, wires)
-    if noise and noise.readout is not None:
-        pairs = noise.readout if isinstance(noise.readout, dict) else {q: noise.readout for q in range(n)}
+    if readout is not None:
+        pairs = readout if isinstance(readout, dict) else {q: readout for q in range(n)}
         for q, (p01, p10) in pairs.items():
             c.readout(int(q), p01, p10)
     return Converted(c, params)
@@ -488,6 +533,41 @@ def parse_observable(spec, n_qubits=None):
     return terms
 
 
+def readout_expand(terms, readout):
+    """Apply classical readout error to observable terms, for any Pauli factor.
+
+    Measuring X or Y means rotating into the Z basis and reading out, so a
+    readout error (p01, p10) turns each factor P on a wire into
+    alpha I + beta P, with alpha = p10 - p01 and beta = 1 - p01 - p10, the
+    same algebra Pauli Cones uses for Z. `readout` is a (p01, p10) pair for
+    every wire or a mapping of wire to pair.
+    """
+    if not readout:
+        return terms
+    merged = {}
+    for coefficient, pauli in terms:
+        expanded = [(coefficient, {})]
+        for q, axis in sorted(pauli.items()):
+            pair = readout.get(q) if isinstance(readout, dict) else readout
+            if not pair:
+                expanded = [(c, {**p, q: axis}) for c, p in expanded]
+                continue
+            p01, p10 = pair
+            alpha, beta = p10 - p01, 1 - p01 - p10
+            expanded = [(c * alpha, p) for c, p in expanded if alpha] + [(c * beta, {**p, q: axis}) for c, p in expanded]
+        for c, p in expanded:
+            key = tuple(sorted(p.items()))
+            merged[key] = merged.get(key, 0.) + c
+    return [(c, dict(k)) for k, c in merged.items() if c != 0.]
+
+
+def _without_readout(noise):
+    """(noise without readout, readout) so readout can be applied to observables instead."""
+    if noise is None or noise.readout is None:
+        return noise, None
+    return Noise(noise.depolarizing_1q, noise.depolarizing_2q, None), noise.readout
+
+
 def _label(label):
     label = label.strip()
     if not re.fullmatch(r"[IXYZ]+", label):
@@ -517,11 +597,12 @@ def expectation(circuit, observable, *, values=None, gradients=False, backend="n
     """
     if device is not None and noise is None:
         noise = device.noise_model()
+    noise, readout = _without_readout(Noise.coerce(noise))
     converted = convert(circuit, noise=noise, max_terms=max_terms, values=values)
     if device is not None and converted.circuit.n_qubits > device.n_qubits:
         raise ConversionError(f"the circuit has {converted.circuit.n_qubits} qubits; {device.name} has "
                               f"{device.n_qubits}", "choose a larger device")
-    terms = parse_observable(observable, converted.circuit.n_qubits)
+    terms = readout_expand(parse_observable(observable, converted.circuit.n_qubits), readout)
     plan = converted.circuit.prepare(terms, backend=backend, truncation=truncation, threads=threads)
     shifts = converted.shifts(values) if converted.parameters else None
     return plan.evaluate(shifts, gradients=gradients)

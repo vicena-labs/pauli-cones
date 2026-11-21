@@ -69,15 +69,20 @@ def decode_qasm_request(data):
     vectors holding OpenQASM 3 input values in source order."""
     from .interop import from_qasm, parse_observable
     fields(data, ("schema_version", "qasm", "observables"),
-           ("max_terms", "parameter_vectors", "gradients", "noise", "device"))
+           ("max_terms", "parameter_vectors", "gradients", "noise", "device", "compile"))
+    if 'compile' in data:
+        return decode_compiled_request(data)
     _integer(data['schema_version'], 'schema_version', 1, 1)
     if not isinstance(data['qasm'], str): raise ValueError("qasm must be OpenQASM text")
     if not isinstance(data.get('gradients', True), bool):
         raise ValueError('gradients must be a boolean')
+    from .interop import Noise, _without_readout, readout_expand
     noise = data.get('noise')
     if 'device' in data and noise is None:
         from .devices import Device
         noise = Device.from_dict(data['device']).noise_model()
+    # Readout applies to the measured Paulis, so X and Y observables work too.
+    noise, readout = _without_readout(Noise.coerce(noise))
     converted = from_qasm(data['qasm'], noise=noise, max_terms=data.get('max_terms', 50_000))
     c = converted.circuit
     raw = data['observables']
@@ -85,9 +90,40 @@ def decode_qasm_request(data):
         for item in raw:
             fields(item, ('coefficient', 'pauli'))
         raw = [(item['coefficient'], {int(q): a for q, a in item['pauli'].items()}) for item in raw]
-    obs = parse_observable(raw, c.n_qubits)
+    obs = readout_expand(parse_observable(raw, c.n_qubits), readout)
     if not 1 <= len(obs) <= 1024: raise ValueError("provide 1..1024 observable terms")
     vecs = data.get('parameter_vectors', [[0.0] * len(converted.parameters)])
     if not isinstance(vecs, list) or not 1 <= len(vecs) <= 128 or any(not isinstance(v, list) for v in vecs):
         raise ValueError("parameter_vectors must contain 1..128 lists")
     return c, obs, [converted.shifts(v) if converted.parameters else v for v in vecs]
+
+
+def decode_compiled_request(data):
+    """The OpenQASM form with "compile": route the circuit onto data["device"] with its
+    noise (gate errors, idle T1/T2, readout), and move observables to the final layout.
+    Returns the circuit, observables, shift vectors and the compile report."""
+    from .compiler import compile_circuit
+    from .devices import Device
+    from .interop import parse_observable
+    options = data['compile']
+    if not isinstance(options, dict):
+        raise ValueError('compile must be an object')
+    fields(options, (), ("router", "layout", "noise_scale", "idle_noise", "noise"))
+    if 'device' not in data:
+        raise ValueError('compile needs a device')
+    compiled = compile_circuit(data['qasm'], Device.from_dict(data['device']),
+                               router=options.get('router', 'greedy'), layout=options.get('layout', 'greedy'),
+                               noise=options.get('noise', True), idle_noise=options.get('idle_noise', True),
+                               noise_scale=options.get('noise_scale', 1.0), max_terms=data.get('max_terms', 50_000))
+    raw = data['observables']
+    if isinstance(raw, list):
+        for item in raw:
+            fields(item, ('coefficient', 'pauli'))
+        raw = [(item['coefficient'], {int(q): a for q, a in item['pauli'].items()}) for item in raw]
+    obs = compiled.observable(raw)
+    if not 1 <= len(obs) <= 1024: raise ValueError("provide 1..1024 observable terms")
+    vecs = data.get('parameter_vectors', [[0.0] * len(compiled.parameters)])
+    if not isinstance(vecs, list) or not 1 <= len(vecs) <= 128 or any(not isinstance(v, list) for v in vecs):
+        raise ValueError("parameter_vectors must contain 1..128 lists")
+    shifts = [compiled.shifts(v) if compiled.parameters else v for v in vecs]
+    return compiled.circuit, obs, shifts, compiled.report
