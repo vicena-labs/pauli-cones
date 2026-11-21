@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pauli-cones"
-version = "0.4.0rc1"
+version = "0.4.0rc2"
 description = "Sparse noisy Pauli-observable simulation and shared-parameter gradients"
 readme = "README.md"
 authors = [{ name = "Mehdi Farza" }]
