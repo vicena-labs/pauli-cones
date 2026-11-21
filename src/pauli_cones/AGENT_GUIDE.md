@@ -90,7 +90,8 @@ Design options:
 
 More options:
 - `--qubit-spread 0.2` gives each qubit its own one-qubit error, readout, T1 and T2, spread log-normally around the chip values as on a real chip.
-- `--spectator-error` and `--zz-hz` add crosstalk. Neighbours of every two-qubit gate take a depolarizing error, and pick up a ZZ conditional phase of 2π·ζ·t during the gate.
+- `--spectator-error` and `--zz-hz` add crosstalk. Neighbours of every two-qubit gate take a depolarizing error. Every coupled pair of active qubits picks up a ZZ conditional phase of 2π·ζ·t for as long as both are active, idle or not, except during their own two-qubit gate.
+- Coherent ZZ multiplies the work of exact simulation. Sweeps and `solve` then switch to truncation and report its convergence; expect seconds rather than milliseconds per point.
 - `--expand-to N` grows a chip to at least N qubits with the same architecture: heavy-hex stays heavy-hex, grids keep their aspect ratio, and modular chips add modules.
 
 In a sweep, `--device fit:heavy-hex-127` grows the chip to fit each size.

@@ -27,19 +27,22 @@ from dataclasses import dataclass, field
 from .api import ConeOverflow, Truncation
 
 
-def solve(circuit, terms, shifts=None, *, tolerances=(1e-4, 1e-5)):
+def solve(circuit, terms, shifts=None, *, tolerances=(1e-4, 1e-5), exact_budget=250_000):
     """Evaluate observable terms on a Pauli Cones Circuit with the best available method.
 
     Returns a dict: value, method, exact, and for truncated answers the
     convergence change between the two tolerances and the rigorous error bound;
-    `reasons` records each method tried and why it was set aside.
+    `reasons` records each method tried and why it was set aside. The exact
+    attempt stops at `exact_budget` terms (or the circuit's own cap, if lower),
+    so a circuit whose exact expansion explodes moves on quickly; truncated
+    attempts use the circuit's full cap.
     """
     reasons = []
     try:
-        result = circuit.prepare(terms).evaluate(shifts, gradients=False)
+        result = _capped(circuit, exact_budget).prepare(terms).evaluate(shifts, gradients=False)
         return {"value": result.value, "method": "native", "exact": True, "reasons": reasons}
     except ConeOverflow as exc:
-        reasons.append(f"native exact: {exc}")
+        reasons.append(f"native exact within {min(exact_budget, circuit.max_terms)} terms: {exc}")
     try:
         result = circuit.prepare(terms, backend="dense").evaluate(shifts, gradients=False)
         return {"value": result.value, "method": "dense", "exact": True, "reasons": reasons}
@@ -64,6 +67,17 @@ def solve(circuit, terms, shifts=None, *, tolerances=(1e-4, 1e-5)):
         out["convergence_change"] = None
         reasons.append("only one tolerance fitted the term cap; convergence is unchecked")
     return out
+
+
+def _capped(circuit, cap):
+    """The circuit with its term cap lowered to `cap` (a copy; the original is unchanged)."""
+    if cap >= circuit.max_terms:
+        return circuit
+    import copy
+    lowered = copy.copy(circuit)
+    lowered._impl = copy.copy(circuit._impl)
+    lowered._impl.max_terms = cap
+    return lowered
 
 
 @dataclass

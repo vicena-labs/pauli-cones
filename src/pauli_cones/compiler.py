@@ -40,6 +40,7 @@ from .interop import (ConversionError, Converted, _DECOMPOSE, _emit, _lower, par
                       source_instructions)
 
 TWO_QUBIT = {"CZ", "ECR"}
+Z_TYPE = {"RZ", "Z", "CZ"}   # diagonal gates, which commute with ZZ crosstalk
 
 
 @dataclass
@@ -381,9 +382,14 @@ def _schedule(ops, device, noise, idle, scale=1.0):
 
     Errors follow each qubit's and coupler's own values where the chip gives
     them. After every two-qubit gate, each started neighbour of its qubits (a
-    spectator) takes the chip's crosstalk: a depolarizing spectator error,
-    and a conditional phase RZZ(2 pi zeta t_2q) with the gate qubit it neighbours
-    for an always-on ZZ coupling zeta (during two-qubit gates only).
+    spectator) takes the chip's depolarizing spectator error. An always-on ZZ
+    coupling zeta acts on every coupled pair of started qubits for as long as
+    both are active, from the later one's first gate to the end of the
+    circuit: the pair accumulates a conditional phase 2 pi zeta t, applied as
+    RZZ just before the next gate on either qubit that does not commute with
+    it (X- or Y-type: diagonal gates commute) and at the end. A coupler's
+    own two-qubit gate replaces its ZZ during the gate (it is calibrated into
+    the gate); spectator pairs keep accumulating through it.
     `scale` multiplies every error, ZZ rate and decoherence rate (T1 and T2 are divided by it).
     """
     if noise is None:
@@ -391,8 +397,24 @@ def _schedule(ops, device, noise, idle, scale=1.0):
     durations = {1: device.time_1q or 0.0, 2: device.time_2q or 0.0}
     adjacency = device._adjacency()
     spectator = device.crosstalk.get("spectator_error", 0.) * scale
-    zz_angle = 2 * math.pi * device.crosstalk.get("zz_hz", 0.) * scale * durations[2]
+    zz_rate = 2 * math.pi * device.crosstalk.get("zz_hz", 0.) * scale   # conditional phase per second
+    zz_clock = {}   # coupled pair of started qubits -> time up to which its ZZ phase has been applied
     coherence = {}
+
+    def flush_pair(pair, until):
+        """Apply a pair's ZZ phase accumulated up to `until`."""
+        elapsed = until - zz_clock[pair]
+        if elapsed > 0:
+            for z_prim, z_wires, z_angle in _DECOMPOSE["rzz"](list(pair), [zz_rate * elapsed]):
+                out.append((z_prim, list(z_wires), z_angle, -1, 1))  # coherent error, not a gate
+            zz_clock[pair] = until
+
+    def flush_zz(qubit, until):
+        """Apply each pair's ZZ phase accumulated up to `until`, for pairs containing `qubit`."""
+        for other in adjacency[qubit]:
+            pair = (min(qubit, other), max(qubit, other))
+            if pair in zz_clock:
+                flush_pair(pair, until)
 
     def relax_times(w):
         if w not in coherence:
@@ -411,6 +433,12 @@ def _schedule(ops, device, noise, idle, scale=1.0):
         virtual = prim == "RZ"
         duration = 0.0 if virtual else durations[len(wires)]
         start = max(busy.get(w, 0.0) for w in wires)
+        if zz_rate and prim not in Z_TYPE:  # ZZ commutes with Z-type gates, so it can wait past them
+            for w in wires:
+                flush_zz(w, start)
+        elif zz_rate and len(wires) == 2 and (min(wires), max(wires)) in zz_clock:
+            # The gate's own pair stops accumulating during the gate: apply what it gathered before.
+            flush_pair((min(wires), max(wires)), start)
         if idle:
             for w in wires:
                 gap = start - busy.get(w, 0.0)
@@ -427,15 +455,10 @@ def _schedule(ops, device, noise, idle, scale=1.0):
             error = device.coupler_error(*wires) if scale else 0.
             if error:
                 out.append(("DEPOL", wires, min(0.9375, error * scale * 5 / 4), -1, 1))
-            if spectator or zz_angle:
+            if spectator:
                 for w in wires:
                     for s in adjacency[w]:
-                        if s in wires or s not in started:
-                            continue
-                        if zz_angle:  # coherent and error-free: not counted as gates
-                            for z_prim, z_wires, z_angle in _DECOMPOSE["rzz"]([w, s], [zz_angle]):
-                                out.append((z_prim, list(z_wires), z_angle, -1, 1))
-                        if spectator:
+                        if s not in wires and s in started:
                             out.append(("DEPOL", [s], min(0.75, spectator * 3 / 2), -1, 1))
         elif not virtual:
             one += 1
@@ -444,8 +467,19 @@ def _schedule(ops, device, noise, idle, scale=1.0):
                 out.append(("DEPOL", wires, min(0.75, error * scale * 3 / 2), -1, 1))
         for w in wires:
             busy[w] = start + duration
+            if zz_rate and w not in started:  # a newly started qubit couples to its started neighbours
+                for other in adjacency[w]:
+                    if other in started:
+                        zz_clock[(min(w, other), max(w, other))] = start
             started.add(w)
+        if zz_rate and len(wires) == 2:  # the gate's own pair: ZZ is part of the calibrated gate
+            pair = (min(wires), max(wires))
+            if pair in zz_clock:
+                zz_clock[pair] = max(zz_clock[pair], start + duration)
     end = max(busy.values(), default=0.0)
+    if zz_rate:
+        for w in sorted(started):
+            flush_zz(w, end)
     if idle:
         for w in sorted(started):
             if end - busy[w] > 0 and relax_times(w):

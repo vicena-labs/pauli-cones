@@ -48,12 +48,27 @@ def test_spectator_error_hits_started_neighbours_of_two_qubit_gates():
     assert value(untouched, chip, "X2", idle_noise=False) == pytest.approx(1.0, abs=1e-12)
 
 
-def test_zz_crosstalk_rotates_a_spectator_by_the_conditional_phase():
+def test_zz_crosstalk_accumulates_while_qubits_idle():
+    # q0 in |1>, q1 in |+>; both idle for 1 us while q3 (far from them) runs ten X gates.
+    chip = quiet(4, crosstalk={"zz_hz": 1e5})
+    qasm = HEADER.format(n=4) + " x q[0]; h q[1];" + " x q[3];" * 10
+    theta = 2 * math.pi * 1e5 * 1e-6
+    assert value(qasm, chip, "X1", idle_noise=False) == pytest.approx(math.cos(theta), abs=1e-12)
+    assert value(qasm, chip, "X1", idle_noise=False, noise_scale=2) == pytest.approx(math.cos(2 * theta), abs=1e-12)
+
+
+def test_zz_crosstalk_continues_on_spectators_through_a_gate():
+    # q1 in |1> and q2 in |+> from t = 0; the CZ on (q0, q1) runs from 0.1 to 0.4 us.
     chip = quiet(3, crosstalk={"zz_hz": 1e5})
-    qasm = HEADER.format(n=3) + " x q[1]; h q[2]; cz q[0],q[1];"   # q1 in |1>, q2 in |+>
-    theta = 2 * math.pi * 1e5 * 3e-7
-    assert value(qasm, chip, "X2", idle_noise=False) == pytest.approx(math.cos(theta), abs=1e-12)
-    assert value(qasm, chip, "X2", idle_noise=False, noise_scale=2) == pytest.approx(math.cos(2 * theta), abs=1e-12)
+    qasm = HEADER.format(n=3) + " x q[1]; h q[2]; cz q[0],q[1];"
+    assert value(qasm, chip, "X2", idle_noise=False) == pytest.approx(math.cos(2 * math.pi * 1e5 * 4e-7), abs=1e-12)
+
+
+def test_a_couplers_own_gate_replaces_its_zz():
+    # Pair (q0, q1) accumulates ZZ for 0.1 us before its CZ and none during it.
+    chip = quiet(2, crosstalk={"zz_hz": 1e5})
+    qasm = HEADER.format(n=2) + " x q[0]; h q[1]; cz q[0],q[1];"
+    assert value(qasm, chip, "X1", idle_noise=False) == pytest.approx(-math.cos(2 * math.pi * 1e5 * 1e-7), abs=1e-12)
 
 
 def test_overrides_and_crosstalk_round_trip_scale_and_validate():

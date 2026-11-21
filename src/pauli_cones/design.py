@@ -203,8 +203,9 @@ def vary_qubits(chip, spread=0.2, *, seed=0):
 
 def with_crosstalk(chip, *, spectator_error=0.0, zz_hz=0.0):
     """A copy with crosstalk: a depolarizing `spectator_error` on each neighbour of a
-    two-qubit gate, and an always-on ZZ rate `zz_hz` acting on those spectator pairs
-    during two-qubit gates (a conditional phase of 2 pi zz_hz t)."""
+    two-qubit gate, and an always-on ZZ rate `zz_hz` between every coupled pair of
+    active qubits, idle or not (a conditional phase of 2 pi zz_hz t). Coherent ZZ
+    makes exact propagation expensive; experiments.solve truncates when it must."""
     return replace(chip, crosstalk={"spectator_error": spectator_error, "zz_hz": zz_hz})
 
 
